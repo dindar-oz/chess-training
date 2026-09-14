@@ -28,6 +28,9 @@ const maxJsonBytes = 64 * 1024
 const maxPgnBytes = 2 * 1024 * 1024
 const maxGamesPerImport = 100
 const maxPendingAnalyses = 4
+const completionXp = 10
+const matchedMoveXp = 1
+const perfectSessionXp = 5
 const dataDirectory = process.env.DATA_DIR ?? 'data'
 const publicDirectory = resolve(process.cwd(), 'dist')
 mkdirSync(dataDirectory, { recursive: true })
@@ -51,6 +54,7 @@ database.exec(`
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
+    xp INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS sessions (
@@ -71,7 +75,16 @@ database.exec(`
     original_accuracy REAL,
     average_cpl REAL,
     completed_at TEXT NOT NULL
-  )
+  );
+  CREATE TABLE IF NOT EXISTS xp_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL UNIQUE,
+    amount INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS xp_events_user_created_at ON xp_events (user_id, created_at DESC)
 `)
 try {
   database.exec('ALTER TABLE games ADD COLUMN fingerprint TEXT')
@@ -79,16 +92,24 @@ try {
 } catch {
   // Existing databases already have the fingerprint column or index.
 }
+try {
+  database.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0')
+} catch {
+  // New databases already include XP; existing databases may already be migrated.
+}
 const enginePromise = initStockfish('lite-single') as Promise<Engine>
 let requestQueue: Promise<unknown> = Promise.resolve()
 let pendingAnalyses = 0
 const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
-type User = { id: string; username: string }
+type User = { id: string; username: string; xp: number }
 
 class RequestError extends Error {
-  constructor(readonly status: number, message: string) {
+  status: number
+
+  constructor(status: number, message: string) {
     super(message)
+    this.status = status
   }
 }
 
@@ -110,8 +131,22 @@ function parseCookies(request: import('node:http').IncomingMessage) {
 function currentUser(request: import('node:http').IncomingMessage): User | null {
   const token = parseCookies(request).session
   if (!token) return null
-  const row = database.prepare('SELECT users.id, users.username FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?').get(hashToken(token), new Date().toISOString()) as User | undefined
+  const row = database.prepare('SELECT users.id, users.username, users.xp FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?').get(hashToken(token), new Date().toISOString()) as User | undefined
   return row ?? null
+}
+
+// Idempotent per session_id so a retried /api/stats submission cannot double-award XP.
+function awardXp(userId: string, sessionId: string, correctMoves: number, deviations: number, attemptedMoves: number) {
+  const xpGained = completionXp + correctMoves * matchedMoveXp + (attemptedMoves > 0 && deviations === 0 ? perfectSessionXp : 0)
+  const inserted = database.prepare('INSERT OR IGNORE INTO xp_events (id, user_id, session_id, amount, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), userId, sessionId, xpGained, 'training_session', new Date().toISOString())
+  if (inserted.changes === 0) {
+    const existing = database.prepare('SELECT xp FROM users WHERE id = ?').get(userId) as { xp: number }
+    return { xpGained: 0, totalXp: existing.xp }
+  }
+  database.prepare('UPDATE users SET xp = xp + ? WHERE id = ?').run(xpGained, userId)
+  const updated = database.prepare('SELECT xp FROM users WHERE id = ?').get(userId) as { xp: number }
+  return { xpGained, totalXp: updated.xp }
 }
 
 function setSessionCookie(response: import('node:http').ServerResponse, token: string) {
@@ -346,14 +381,14 @@ const server = createServer(async (request, response) => {
         const id = randomUUID()
         const salt = randomBytes(16).toString('hex')
         database.prepare('INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)').run(id, username, hashPassword(password, salt), salt, new Date().toISOString())
-        user = { id, username }
+        user = { id, username, xp: 0 }
       } else {
-        const record = database.prepare('SELECT id, username, password_hash, password_salt FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string }) | undefined
+        const record = database.prepare('SELECT id, username, password_hash, password_salt, xp FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string }) | undefined
         if (!record) throw new Error('Invalid username or password.')
         const actual = Buffer.from(hashPassword(password, record.password_salt), 'hex')
         const expected = Buffer.from(record.password_hash, 'hex')
         if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid username or password.')
-        user = { id: record.id, username: record.username }
+        user = { id: record.id, username: record.username, xp: record.xp }
       }
 
       const token = randomBytes(32).toString('hex')
@@ -393,8 +428,13 @@ const server = createServer(async (request, response) => {
     }
     try {
       const body = await readJson(request)
-      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(body.id, user.id, body.gameId, body.gameTitle, body.side, body.attemptedMoves, body.correctMoves, body.deviations, body.learnerAccuracy ?? null, body.originalAccuracy ?? null, body.averageCpl ?? null, body.completedAt)
-      sendJson(response, 200, { ok: true })
+      const sessionId = String(body.id)
+      const correctMoves = Number(body.correctMoves) || 0
+      const deviations = Number(body.deviations) || 0
+      const attemptedMoves = Number(body.attemptedMoves) || 0
+      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, String(body.completedAt))
+      const { xpGained, totalXp } = awardXp(user.id, sessionId, correctMoves, deviations, attemptedMoves)
+      sendJson(response, 200, { ok: true, xpGained, totalXp })
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not save statistics.' })
     }

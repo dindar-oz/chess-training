@@ -10,7 +10,7 @@ type Side = 'w' | 'b'
 type SessionStatus = 'selecting' | 'playing' | 'correction' | 'complete'
 type AppView = 'library' | 'training' | 'stats'
 type ImportStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
-type AuthUser = { id: string; username: string }
+type AuthUser = { id: string; username: string; xp: number }
 
 type GameRecord = {
   id: string
@@ -144,6 +144,7 @@ function App() {
   const [analysisElapsedSeconds, setAnalysisElapsedSeconds] = useState(0)
   const sessionStartedAt = useRef<string | null>(null)
   const savedStatKey = useRef<string | null>(null)
+  const [lastXpGained, setLastXpGained] = useState<number | null>(null)
   const engine = useMemo(() => new StockfishEngine(), [])
 
   const expectedMove = originalMoves[currentPly]
@@ -190,8 +191,9 @@ function App() {
 
   useEffect(() => {
     void fetch('/api/auth/me')
-      .then((response) => response.json() as Promise<{ user: AuthUser | null }>)
+      .then((response) => response.ok ? response.json() as Promise<{ user: AuthUser | null }> : { user: null })
       .then(({ user }) => setAuthUser(user))
+      .catch(() => setAuthUser(null))
       .finally(() => setAuthChecked(true))
   }, [])
 
@@ -215,7 +217,7 @@ function App() {
 
   useEffect(() => {
     void fetch('/api/games')
-      .then((response) => response.json() as Promise<Array<Omit<GameRecord, 'pgn'> & { pgn?: string }>>)
+      .then((response) => response.ok ? response.json() as Promise<Array<Omit<GameRecord, 'pgn'> & { pgn?: string }>> : [])
       .then((storedGames) => {
         if (storedGames.length > 0) {
           setGames((previous) => {
@@ -231,10 +233,12 @@ function App() {
     if (view !== 'training' || selectedGame.pgn || gameLoading) return
     setGameLoading(true)
     void fetch(`/api/games/${selectedGame.id}`)
-      .then((response) => response.json())
-      .then((gameWithPgn: GameRecord) => {
+      .then((response) => response.ok ? response.json() as Promise<GameRecord> : null)
+      .then((gameWithPgn) => {
+        if (!gameWithPgn) return
         setGames((previous) => previous.map((game) => game.id === gameWithPgn.id ? gameWithPgn : game))
       })
+      .catch(() => undefined)
       .finally(() => setGameLoading(false))
   }, [gameLoading, selectedGame, view])
 
@@ -301,7 +305,12 @@ function App() {
       completedAt: new Date().toISOString(),
     }
     void fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stat) })
-      .then(() => setSessionStats((previous) => [stat, ...previous.filter((item) => item.id !== stat.id)]))
+      .then((response) => response.json() as Promise<{ xpGained?: number; totalXp?: number }>)
+      .then((result) => {
+        setSessionStats((previous) => [stat, ...previous.filter((item) => item.id !== stat.id)])
+        if (typeof result.xpGained === 'number') setLastXpGained(result.xpGained)
+        if (typeof result.totalXp === 'number') setAuthUser((previous) => previous ? { ...previous, xp: result.totalXp as number } : previous)
+      })
     savedStatKey.current = sessionStartedAt.current
   }, [analysisStatus, correctCount, learnerAccuracy, learnerAverageCpl, originalAccuracy, records.length, selectedGame.id, selectedGame.title, side])
 
@@ -311,8 +320,13 @@ function App() {
     setAuthMessage('')
     try {
       const response = await fetch(`/api/auth/${authMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: authUsername, password: authPassword }) })
-      const result = await response.json() as { user?: AuthUser; error?: string }
-      if (!response.ok || !result.user) throw new Error(result.error ?? 'Authentication failed.')
+      let result: { user?: AuthUser; error?: string } = {}
+      try {
+        result = await response.json() as { user?: AuthUser; error?: string }
+      } catch {
+        // Server returned a non-JSON or empty body (e.g. cold start / outage).
+      }
+      if (!response.ok || !result.user) throw new Error(result.error ?? 'The server did not respond. Please try again in a moment.')
       setAuthUser(result.user)
       setAuthPassword('')
     } catch (error) {
@@ -331,6 +345,7 @@ function App() {
   function beginTraining(selectedSide: Side) {
     sessionStartedAt.current = `${Date.now()}-${selectedGame.id}`
     savedStatKey.current = null
+    setLastXpGained(null)
     setView('training')
     startSession(selectedSide)
   }
@@ -513,6 +528,7 @@ function App() {
     setAnalysisPhase(null)
     setAnalysisStartedAt(null)
     setAnalysisElapsedSeconds(0)
+    setLastXpGained(null)
   }
 
   function renderAuth() {
@@ -523,7 +539,7 @@ function App() {
     return <main className="app-shell library-screen">
       <header className="topbar library-topbar">
         <div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / LIBRARY</p><h1>Study the<br /><em>great games.</em></h1></div>
-        <div className="topbar-meta"><span className="live-dot" /> {games.length} GAMES <strong>{sessionStats.length} SESSIONS</strong><button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div>
+        <div className="topbar-meta"><span className="live-dot" /> {games.length} GAMES <strong>{sessionStats.length} SESSIONS</strong><strong>{authUser?.xp ?? 0} XP</strong><button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div>
       </header>
       <nav className="main-nav"><button className="nav-active" onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button></nav>
       <section className="library-toolbar">
@@ -543,9 +559,9 @@ function App() {
     const totalMoves = completed.reduce((sum, stat) => sum + stat.attemptedMoves, 0)
     const totalMatches = completed.reduce((sum, stat) => sum + stat.correctMoves, 0)
     return <main className="app-shell stats-screen">
-      <header className="topbar library-topbar"><div><p className="eyebrow">REPLAY LAB / PROGRESS</p><h1>Your study<br /><em>record.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> PERSONAL ARCHIVE<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
+      <header className="topbar library-topbar"><div><p className="eyebrow">REPLAY LAB / PROGRESS</p><h1>Your study<br /><em>record.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
       <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button className="nav-active" onClick={() => setView('stats')}>My statistics</button></nav>
-      <section className="stats-summary"><div><span>SESSIONS</span><strong>{completed.length}</strong></div><div><span>AVG ACCURACY</span><strong>{averageAccuracy}%</strong></div><div><span>MOVES ATTEMPTED</span><strong>{totalMoves}</strong></div><div><span>HISTORICAL MATCHES</span><strong>{totalMatches}</strong></div></section>
+      <section className="stats-summary"><div><span>TOTAL XP</span><strong>{authUser?.xp ?? 0}</strong></div><div><span>SESSIONS</span><strong>{completed.length}</strong></div><div><span>AVG ACCURACY</span><strong>{averageAccuracy}%</strong></div><div><span>MOVES ATTEMPTED</span><strong>{totalMoves}</strong></div><div><span>HISTORICAL MATCHES</span><strong>{totalMatches}</strong></div></section>
       <section className="history-section"><div className="section-heading"><div><p className="section-label">SESSION HISTORY</p><h2>Every game is part of the record.</h2></div><button className="text-button" onClick={() => setView('library')}>Find another game →</button></div>{completed.length === 0 ? <div className="empty-library">Complete a training session to start building your statistics.</div> : <div className="history-list">{completed.map((stat) => <div className="history-row" key={stat.id}><div><strong>{stat.gameTitle}</strong><span>{new Date(stat.completedAt).toLocaleDateString()} · {stat.side === 'w' ? 'White' : 'Black'}</span></div><div><strong>{stat.learnerAccuracy}%</strong><span>YOUR ACCURACY</span></div><div><strong>{stat.originalAccuracy}%</strong><span>ORIGINAL</span></div><div><strong>{stat.deviations}</strong><span>DEVIATIONS</span></div></div>)}</div>}</section>
     </main>
   }
@@ -605,6 +621,7 @@ function App() {
               <div className="move-log"><p className="section-label">YOUR ATTEMPTS</p>{records.length === 0 ? <p className="empty-log">Your recorded moves will appear here.</p> : records.map((record, index) => <div className="move-row" key={`${record.moveNumber}-${index}`}><span>{record.moveNumber}{record.moveNumber % 2 === 0 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>
               {status === 'complete' && <section className="engine-review">
                 <div className="review-heading"><p className="section-label">ENGINE REVIEW</p><span className={analysisStatus}>{analysisStatus === 'running' ? 'ANALYZING' : analysisStatus === 'ready' ? 'READY' : analysisStatus === 'failed' ? 'UNAVAILABLE' : 'WAITING'}</span></div>
+                {lastXpGained !== null && lastXpGained > 0 && <p className="xp-earned">+{lastXpGained} XP earned</p>}
                 <label className="depth-control">DEPTH <strong>{analysisDepth}</strong><input type="range" min="12" max="30" value={analysisDepth} disabled={analysisStatus === 'running'} onChange={(event) => { setAnalysisDepth(Number(event.target.value)); setAnalysisStatus('idle'); setAnalysisResults([]) }} /></label>
                 {analysisStatus === 'running' && <div className="analysis-progress" aria-live="polite">
                   <div className="analysis-progress-label"><strong>Move {analysisCurrentMove} of {records.length} · {analysisPhase === 'best' ? 'best line' : analysisPhase === 'original' ? 'original move' : 'your move'}</strong><span>{Math.round(analysisProgress * 100)}%</span></div>
