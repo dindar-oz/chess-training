@@ -24,6 +24,10 @@ type EngineScore = {
 
 const port = Number(process.env.PORT ?? 8787)
 const maxDepth = 30
+const maxJsonBytes = 64 * 1024
+const maxPgnBytes = 2 * 1024 * 1024
+const maxGamesPerImport = 100
+const maxPendingAnalyses = 4
 const dataDirectory = process.env.DATA_DIR ?? 'data'
 const publicDirectory = resolve(process.cwd(), 'dist')
 mkdirSync(dataDirectory, { recursive: true })
@@ -77,8 +81,16 @@ try {
 }
 const enginePromise = initStockfish('lite-single') as Promise<Engine>
 let requestQueue: Promise<unknown> = Promise.resolve()
+let pendingAnalyses = 0
+const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
 type User = { id: string; username: string }
+
+class RequestError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message)
+  }
+}
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
@@ -111,9 +123,32 @@ function clearSessionCookie(response: import('node:http').ServerResponse) {
   response.setHeader('Set-Cookie', 'session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0')
 }
 
-async function readJson(request: import('node:http').IncomingMessage) {
+function clientAddress(request: import('node:http').IncomingMessage) {
+  const forwarded = request.headers['x-forwarded-for']
+  if (typeof forwarded === 'string') return forwarded.split(',', 1)[0].trim()
+  return request.socket.remoteAddress ?? 'unknown'
+}
+
+function allowRequest(key: string, limit: number, windowMs: number) {
+  const now = Date.now()
+  const current = rateLimits.get(key)
+  if (!current || current.resetAt <= now) {
+    rateLimits.set(key, { count: 1, resetAt: now + windowMs })
+    return true
+  }
+  if (current.count >= limit) return false
+  current.count += 1
+  return true
+}
+
+async function readJson(request: import('node:http').IncomingMessage, maxBytes = maxJsonBytes) {
   let rawBody = ''
-  for await (const chunk of request) rawBody += chunk
+  let byteCount = 0
+  for await (const chunk of request) {
+    byteCount += Buffer.byteLength(chunk)
+    if (byteCount > maxBytes) throw new RequestError(413, 'Request body is too large.')
+    rawBody += chunk
+  }
   return JSON.parse(rawBody) as Record<string, unknown>
 }
 
@@ -159,15 +194,19 @@ async function importPgnStream(request: import('node:http').IncomingMessage) {
   const decoder = new TextDecoder()
   let textBuffer = ''
   let currentGame = ''
-  const imported = []
+  let byteCount = 0
+  const imported: ReturnType<typeof savePgn>[] = []
   const flush = () => {
     const pgn = currentGame.trim()
     if (!pgn) return
+    if (imported.length >= maxGamesPerImport) throw new RequestError(413, `A single import can contain at most ${maxGamesPerImport} games.`)
     imported.push(savePgn(pgn))
     currentGame = ''
   }
 
   for await (const chunk of request) {
+    byteCount += Buffer.byteLength(chunk)
+    if (byteCount > maxPgnBytes) throw new RequestError(413, 'PGN uploads are limited to 2 MB.')
     textBuffer += decoder.decode(chunk as Buffer, { stream: true })
     const lines = textBuffer.split(/\r?\n/)
     textBuffer = lines.pop() ?? ''
@@ -216,9 +255,23 @@ async function analyze(fen: string, depth: number, moveUci?: string) {
 }
 
 function queuedAnalyze(fen: string, depth: number, moveUci?: string) {
+  if (pendingAnalyses >= maxPendingAnalyses) throw new RequestError(429, 'The analysis queue is full. Please try again shortly.')
+  pendingAnalyses += 1
   const task = requestQueue.then(() => analyze(fen, depth, moveUci))
   requestQueue = task.catch(() => undefined)
-  return task
+  return task.finally(() => { pendingAnalyses -= 1 })
+}
+
+function validAnalysisRequest(body: AnalyzeRequest) {
+  if (typeof body.fen !== 'string' || body.fen.length > 100 || /[\r\n]/.test(body.fen)) return false
+  if (!Number.isInteger(body.depth) || body.depth < 12 || body.depth > maxDepth) return false
+  if (body.moveUci !== undefined && (typeof body.moveUci !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(body.moveUci))) return false
+  try {
+    new Chess(body.fen)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function sendJson(response: import('node:http').ServerResponse, status: number, body: unknown) {
@@ -273,6 +326,13 @@ const server = createServer(async (request, response) => {
 
   if (request.method === 'POST' && (request.url === '/api/auth/register' || request.url === '/api/auth/login')) {
     try {
+      const action = request.url.endsWith('/register') ? 'register' : 'login'
+      const limit = action === 'register' ? 5 : 20
+      const windowMs = action === 'register' ? 60 * 60 * 1000 : 15 * 60 * 1000
+      if (!allowRequest(`auth:${action}:${clientAddress(request)}`, limit, windowMs)) {
+        sendJson(response, 429, { error: 'Too many authentication attempts. Please try again later.' })
+        return
+      }
       const body = await readJson(request)
       const username = typeof body.username === 'string' ? body.username.trim() : ''
       const password = typeof body.password === 'string' ? body.password : ''
@@ -301,7 +361,7 @@ const server = createServer(async (request, response) => {
       setSessionCookie(response, token)
       sendJson(response, 200, { user })
     } catch (error) {
-      sendJson(response, 400, { error: error instanceof Error ? error.message : 'Authentication failed.' })
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'Authentication failed.' })
     }
     return
   }
@@ -359,22 +419,38 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === 'POST' && request.url === '/api/games/import') {
+    const user = currentUser(request)
+    if (!user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    if (!allowRequest(`import:${user.id}`, 6, 60 * 60 * 1000)) {
+      sendJson(response, 429, { error: 'Too many imports. Please try again later.' })
+      return
+    }
     try {
       const imported = await importPgnStream(request)
       const duplicates = imported.filter((game) => 'duplicate' in game).length
       sendJson(response, 200, { imported: imported.filter((game) => !('duplicate' in game)).map(gameMetadata), duplicates })
     } catch (error) {
-      sendJson(response, 400, { error: error instanceof Error ? error.message : 'PGN import failed.' })
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'PGN import failed.' })
     }
     return
   }
 
   if (request.method === 'POST' && request.url === '/api/analyze') {
+    const user = currentUser(request)
+    if (!user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    if (!allowRequest(`analyze:${user.id}`, 120, 10 * 60 * 1000)) {
+      sendJson(response, 429, { error: 'Too many analysis requests. Please try again later.' })
+      return
+    }
     try {
-      let rawBody = ''
-      for await (const chunk of request) rawBody += chunk
-      const body = JSON.parse(rawBody) as AnalyzeRequest
-      if (!body.fen || !body.depth || body.depth < 12 || body.depth > maxDepth) {
+      const body = await readJson(request) as AnalyzeRequest
+      if (!validAnalysisRequest(body)) {
         sendJson(response, 400, { error: `fen and depth (12-${maxDepth}) are required.` })
         return
       }
@@ -382,7 +458,7 @@ const server = createServer(async (request, response) => {
       const score = await queuedAnalyze(body.fen, body.depth, body.moveUci)
       sendJson(response, 200, score)
     } catch (error) {
-      sendJson(response, 500, { error: error instanceof Error ? error.message : 'Engine analysis failed.' })
+      sendJson(response, error instanceof RequestError ? error.status : 500, { error: error instanceof Error ? error.message : 'Engine analysis failed.' })
     }
     return
   }
