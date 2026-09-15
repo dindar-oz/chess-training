@@ -110,6 +110,15 @@ h1 em { color: var(--green); font-style: italic; }
 .history-row > div:not(:first-child) { border-left: 1px solid var(--line); padding-left: 17px; }
 .history-row strong { color: var(--ink); display: block; font: 600 15px 'Playfair Display', serif; margin-bottom: 5px; }
 
+.badge-grid { border-top: 2px solid var(--ink); display: grid; gap: 28px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); padding-top: 40px; }
+.badge-card { border: 1px solid var(--line); padding: 28px 22px; text-align: center; }
+.badge-image { height: 110px; margin: 0 auto 18px; width: auto; }
+.badge-card.locked .badge-image { filter: grayscale(1); opacity: .35; }
+.badge-card h3 { color: var(--ink); font: 600 18px 'Playfair Display', serif; margin: 0 0 8px; }
+.badge-card p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; }
+.badge-card.locked p { font-style: italic; }
+.badge-earned-date { color: var(--green); display: block; font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; margin-top: 12px; text-transform: uppercase; }
+
 .game-layout { display: grid; grid-template-columns: minmax(400px, 1.22fr) minmax(300px, .78fr); gap: clamp(28px, 6vw, 88px); padding-top: 52px; }
 .board-column { min-width: 0; }
 .board-labels, .board-footer { color: var(--muted); display: flex; justify-content: space-between; gap: 10px; }
