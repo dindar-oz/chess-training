@@ -110,6 +110,10 @@ h1 em { color: var(--green); font-style: italic; }
 .history-row > div:not(:first-child) { border-left: 1px solid var(--line); padding-left: 17px; }
 .history-row strong { color: var(--ink); display: block; font: 600 15px 'Playfair Display', serif; margin-bottom: 5px; }
 
+.leaderboard-table-wrap { margin-top: 40px; }
+.leaderboard-self { background: var(--green-soft); }
+.leaderboard-self td:first-child, .leaderboard-self td:nth-child(2) { color: var(--ink); font-weight: 600; }
+
 .badge-grid { border-top: 2px solid var(--ink); display: grid; gap: 28px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); padding-top: 40px; }
 .badge-card { border: 1px solid var(--line); padding: 28px 22px; text-align: center; }
 .badge-image { height: 110px; margin: 0 auto 18px; width: auto; }

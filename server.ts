@@ -423,6 +423,25 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (request.method === 'GET' && request.url === '/api/leaderboard') {
+    const user = currentUser(request)
+    if (!user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    const rows = database.prepare(`
+      SELECT users.username AS username, users.xp AS xp,
+        AVG(training_sessions.learner_accuracy) AS averageAccuracy
+      FROM users
+      LEFT JOIN training_sessions
+        ON training_sessions.user_id = users.id AND training_sessions.learner_accuracy IS NOT NULL
+      GROUP BY users.id
+      ORDER BY users.xp DESC, username COLLATE NOCASE ASC
+    `).all()
+    sendJson(response, 200, rows)
+    return
+  }
+
   if (request.method === 'POST' && request.url === '/api/stats') {
     const user = currentUser(request)
     if (!user) {

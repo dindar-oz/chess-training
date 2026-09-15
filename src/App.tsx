@@ -12,7 +12,7 @@ import './App.css'
 
 type Side = 'w' | 'b'
 type SessionStatus = 'selecting' | 'playing' | 'correction' | 'complete'
-type AppView = 'library' | 'training' | 'stats' | 'awards'
+type AppView = 'library' | 'training' | 'stats' | 'awards' | 'leaderboard'
 type ImportStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
 type AuthUser = { id: string; username: string; xp: number }
 
@@ -40,6 +40,12 @@ type SessionStat = {
   originalAccuracy: number | null
   averageCpl: number | null
   completedAt: string
+}
+
+type LeaderboardEntry = {
+  username: string
+  xp: number
+  averageAccuracy: number | null
 }
 
 type MoveRecord = {
@@ -112,6 +118,7 @@ function App() {
   const [view, setView] = useState<AppView>('library')
   const [games, setGames] = useState<GameRecord[]>(() => readStored('chess-training-games', [sampleGame]))
   const [sessionStats, setSessionStats] = useState<SessionStat[]>([])
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
@@ -205,12 +212,20 @@ function App() {
   useEffect(() => {
     if (!authUser) {
       setSessionStats([])
+      setLeaderboard([])
       return
     }
     void fetch('/api/stats')
       .then((response) => response.ok ? response.json() as Promise<SessionStat[]> : [])
       .then((stats) => setSessionStats(stats))
   }, [authUser])
+
+  useEffect(() => {
+    if (view !== 'leaderboard') return
+    void fetch('/api/leaderboard')
+      .then((response) => response.ok ? response.json() as Promise<LeaderboardEntry[]> : [])
+      .then((entries) => setLeaderboard(entries))
+  }, [view])
 
   useEffect(() => {
     setGamePage(1)
@@ -553,7 +568,7 @@ function App() {
         <div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / LIBRARY</p><h1>Study the<br /><em>great games.</em></h1></div>
         <div className="topbar-meta"><span className="live-dot" /> {games.length} GAMES <strong>{sessionStats.length} SESSIONS</strong><strong>{authUser?.xp ?? 0} XP</strong><button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div>
       </header>
-      <nav className="main-nav"><button className="nav-active" onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button></nav>
+      <nav className="main-nav"><button className="nav-active" onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button><button onClick={() => setView('leaderboard')}><span aria-hidden="true">☰</span> Leaderboard</button></nav>
       <section className="library-toolbar">
         <div><p className="section-label">GAME DATABASE</p><h2>{filteredGames.length} games ready to study</h2></div>
         <div className="library-controls"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search players or events" aria-label="Search games" /><div className="filter-group"><button className={gameFilter === 'all' ? 'selected' : ''} onClick={() => setGameFilter('all')}>All</button><button className={gameFilter === 'decisive' ? 'selected' : ''} onClick={() => setGameFilter('decisive')}>Decisive</button><button className={gameFilter === 'draw' ? 'selected' : ''} onClick={() => setGameFilter('draw')}>Draws</button></div></div>
@@ -572,7 +587,7 @@ function App() {
     const totalMatches = completed.reduce((sum, stat) => sum + stat.correctMoves, 0)
     return <main className="app-shell stats-screen">
       <header className="topbar library-topbar"><div><p className="eyebrow">REPLAY LAB / PROGRESS</p><h1>Your study<br /><em>record.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
-      <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button className="nav-active" onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button></nav>
+      <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button className="nav-active" onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button><button onClick={() => setView('leaderboard')}>Leaderboard</button></nav>
       <section className="stats-summary"><div><span>TOTAL XP</span><strong>{authUser?.xp ?? 0}</strong></div><div><span>SESSIONS</span><strong>{completed.length}</strong></div><div><span>AVG ACCURACY</span><strong>{averageAccuracy}%</strong></div><div><span>MOVES ATTEMPTED</span><strong>{totalMoves}</strong></div><div><span>HISTORICAL MATCHES</span><strong>{totalMatches}</strong></div></section>
       <section className="history-section"><div className="section-heading"><div><p className="section-label">SESSION HISTORY</p><h2>Every game is part of the record.</h2></div><button className="text-button" onClick={() => setView('library')}>Find another game →</button></div>{completed.length === 0 ? <div className="empty-library">Complete a training session to start building your statistics.</div> : <div className="history-list">{completed.map((stat) => <div className="history-row" key={stat.id}><div><strong>{stat.gameTitle}</strong><span>{new Date(stat.completedAt).toLocaleDateString()} · {stat.side === 'w' ? 'White' : 'Black'}</span></div><div><strong>{stat.learnerAccuracy}%</strong><span>YOUR ACCURACY</span></div><div><strong>{stat.originalAccuracy}%</strong><span>ORIGINAL</span></div><div><strong>{stat.deviations}</strong><span>DEVIATIONS</span></div></div>)}</div>}</section>
     </main>
@@ -585,7 +600,7 @@ function App() {
       : null
     return <main className="app-shell awards-screen">
       <header className="topbar library-topbar"><div><p className="eyebrow">REPLAY LAB / AWARDS</p><h1>Badges<br /><em>you've earned.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
-      <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button className="nav-active" onClick={() => setView('awards')}>Awards</button></nav>
+      <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button className="nav-active" onClick={() => setView('awards')}>Awards</button><button onClick={() => setView('leaderboard')}>Leaderboard</button></nav>
       <section className="badge-grid">
         <div className={`badge-card ${firstGameEarned ? 'earned' : 'locked'}`}>
           <img src={firstGameBadge} alt="1st Game Completed badge" className="badge-image" />
@@ -597,11 +612,21 @@ function App() {
     </main>
   }
 
+  function renderLeaderboard() {
+    return <main className="app-shell leaderboard-screen">
+      <header className="topbar library-topbar"><div><p className="eyebrow">REPLAY LAB / LEADERBOARD</p><h1>Top<br /><em>learners.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
+      <nav className="main-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button><button className="nav-active" onClick={() => setView('leaderboard')}>Leaderboard</button></nav>
+      <div className="games-table-wrap leaderboard-table-wrap"><table className="games-table"><thead><tr><th>Rank</th><th>User</th><th>XP</th><th>Avg accuracy</th></tr></thead><tbody>{leaderboard.map((entry, index) => <tr key={entry.username} className={entry.username === authUser?.username ? 'leaderboard-self' : ''}><td>{index + 1}</td><td>{entry.username}</td><td>{entry.xp}</td><td>{entry.averageAccuracy === null ? '—' : `${Math.round(entry.averageAccuracy)}%`}</td></tr>)}</tbody></table></div>
+      {leaderboard.length === 0 && <div className="empty-library">No users yet.</div>}
+    </main>
+  }
+
   if (!authChecked) return <main className="auth-screen"><p className="eyebrow">REPLAY LAB</p><h1>Loading your study space.</h1></main>
   if (!authUser) return renderAuth()
   if (view === 'library') return renderLibrary()
   if (view === 'stats') return renderStats()
   if (view === 'awards') return renderAwards()
+  if (view === 'leaderboard') return renderLeaderboard()
 
   return (
     <main className="app-shell">
@@ -615,7 +640,7 @@ function App() {
           <button className="header-link" onClick={() => setView('library')}>← Library</button>
         </div>
       </header>
-      <nav className="main-nav training-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button></nav>
+      <nav className="main-nav training-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button><button onClick={() => setView('leaderboard')}>Leaderboard</button></nav>
 
       <section className="game-layout">
         <div className="board-column">
