@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
-import { accuracyFromCpl, StockfishEngine } from './stockfish'
-import type { EnginePhase } from './stockfish'
+import { accuracyFromCpl } from './stockfish'
+// Rollback: swap this import back to `import { StockfishEngine } from './stockfish'`
+// to restore server-side analysis via /api/analyze (untouched in server.ts).
+import { ClientStockfishEngine as StockfishEngine } from './clientStockfish'
+import type { EnginePhase } from './clientStockfish'
 import firstGameBadge from './assets/badge-first-game.svg'
 import './App.css'
 
