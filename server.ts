@@ -25,8 +25,9 @@ type EngineScore = {
 const port = Number(process.env.PORT ?? 8787)
 const maxDepth = 30
 const maxJsonBytes = 64 * 1024
-const maxPgnBytes = 2 * 1024 * 1024
+const maxPgnBytes = 1 * 1024 * 1024
 const maxGamesPerImport = 100
+const maxLibrarySize = 10_000
 const maxPendingAnalyses = 4
 const completionXp = 10
 const matchedMoveXp = 1
@@ -199,7 +200,7 @@ function savePgn(pgn: string) {
   const event = pgnHeader(pgn, 'Event', 'Imported game')
   const date = pgnHeader(pgn, 'Date', 'Unknown date')
   const result = pgnHeader(pgn, 'Result', '*')
-  const moves = chess.history({ verbose: true }).map((move) => move.lan()).join(' ')
+  const moves = chess.history({ verbose: true }).map((move) => move.lan).join(' ')
   const fingerprint = createHash('sha256').update(`${white}|${black}|${event}|${date}|${result}|${moves}`).digest('hex')
   const record = {
     id: randomUUID(),
@@ -216,6 +217,8 @@ function savePgn(pgn: string) {
   }
   const existing = database.prepare('SELECT id, title, white, black, event, date, result, ply_count, pgn FROM games WHERE fingerprint = ?').get(fingerprint) as Record<string, unknown> | undefined
   if (existing) return { ...existing, duplicate: true }
+  const { count } = database.prepare('SELECT COUNT(*) AS count FROM games').get() as { count: number }
+  if (count >= maxLibrarySize) throw new RequestError(400, `The game library is full (max ${maxLibrarySize} games).`)
   database.prepare('INSERT INTO games (id, title, white, black, event, date, result, ply_count, pgn, fingerprint, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(record.id, record.title, record.white, record.black, record.event, record.date, record.result, record.ply_count, record.pgn, record.fingerprint, record.imported_at)
   return record
@@ -241,7 +244,7 @@ async function importPgnStream(request: import('node:http').IncomingMessage) {
 
   for await (const chunk of request) {
     byteCount += Buffer.byteLength(chunk)
-    if (byteCount > maxPgnBytes) throw new RequestError(413, 'PGN uploads are limited to 2 MB.')
+    if (byteCount > maxPgnBytes) throw new RequestError(413, 'PGN uploads are limited to 1 MB.')
     textBuffer += decoder.decode(chunk as Buffer, { stream: true })
     const lines = textBuffer.split(/\r?\n/)
     textBuffer = lines.pop() ?? ''

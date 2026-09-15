@@ -84,6 +84,7 @@ const sampleGame: GameRecord = {
 }
 
 const maxTextImportBytes = 20 * 1024 * 1024
+const maxPgnImportBytes = 1 * 1024 * 1024
 
 function readStored<T>(key: string, fallback: T): T {
   try {
@@ -403,6 +404,13 @@ function App() {
     if (!file) return
     setSelectedFileName(file.name)
     setSelectedFileSize(file.size)
+    if (file.size > maxPgnImportBytes) {
+      setImportText('')
+      setImportStatus('error')
+      setImportMessage(`${file.name} is ${Math.round(file.size / 1024 / 1024)} MB. PGN imports are limited to 1 MB.`)
+      event.currentTarget.value = ''
+      return
+    }
     if (file.size > maxTextImportBytes) {
       setImportText('')
       setImportStatus('uploading')
