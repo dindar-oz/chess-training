@@ -8,6 +8,8 @@ import { ClientStockfishEngine as StockfishEngine } from '../clientStockfish'
 import type { EnginePhase } from '../clientStockfish'
 import { ChessClock } from '../components/ChessClock'
 import { MainNav } from '../components/MainNav'
+import { SoundToggle } from '../components/SoundToggle'
+import { play } from '../sounds'
 import { TimeControlPicker } from '../components/TimeControlPicker'
 import { useTrainingSession } from '../hooks/useTrainingSession'
 import { readStored, writeStored } from '../storage'
@@ -110,6 +112,15 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     if (status !== 'playing' || !session.isUsersTurn || !expectedUci) return
     void engine.prefetch(positionFen, analysisDepth, expectedUci, null, isStale(sessionToken))
   }, [analysisDepth, engine, expectedUci, isStale, positionFen, session.isUsersTurn, sessionToken, status])
+
+  // One warning beep when your clock drops under 20 seconds.
+  const lowTime = status === 'playing' && session.timeControl !== null && session.clock.displayMs > 0 && session.clock.displayMs < 20_000
+  const lowTimeWarned = useRef(false)
+  useEffect(() => {
+    if (!lowTime) return
+    if (!lowTimeWarned.current) play('lowTime')
+    lowTimeWarned.current = true
+  }, [lowTime])
 
   const latestRecord = records.at(-1)
   useEffect(() => {
@@ -217,6 +228,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     savedStatKey.current = null
     setLastXpGained(null)
     setBackgroundReady(0)
+    lowTimeWarned.current = false
     resetAnalysis()
     session.start(selectedSide, selectedTimeControl)
   }
@@ -240,6 +252,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
         </div>
         <div className="topbar-meta">
           <span className="live-dot" /> TRAINING MODE
+          <SoundToggle />
           <button className="header-link" onClick={() => onNavigate('library')}>← Library</button>
         </div>
       </header>

@@ -3,6 +3,7 @@ import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { correctionDelayMs } from '../../shared/challengeRules.ts'
 import { ChessClock } from '../components/ChessClock'
+import { moveSound, play } from '../sounds'
 import { formatClock } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
 import { useChallenges } from './context'
@@ -48,6 +49,44 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
 
   useEffect(() => () => window.clearTimeout(correctionTimer.current), [])
 
+  // Countdown ticks, then the start fanfare. Only a lower number ticks: each new
+  // snapshot re-estimates the countdown, and network delay can round it back up.
+  const countdownSecond = started ? 0 : Math.ceil(startsInMs / 1000)
+  const lastCountdownSecond = useRef<number | null>(null)
+  useEffect(() => {
+    const last = lastCountdownSecond.current
+    if (last !== null && countdownSecond >= last) return
+    lastCountdownSecond.current = countdownSecond
+    if (countdownSecond > 0) play('countdown')
+    else if (last !== null) play('challengeStart')
+  }, [countdownSecond])
+
+  // The historical opponent's reply, once your move is confirmed and any
+  // correction pause is over (a live update can show the new position earlier).
+  const lastAnnouncedPly = useRef<number | null>(null)
+  const replyPly = started && pendingFen === null && correction === null && position?.previousSan ? position.ply : null
+  useEffect(() => {
+    if (replyPly === null || lastAnnouncedPly.current === replyPly) return
+    lastAnnouncedPly.current = replyPly
+    play(moveSound(position!.previousSan!, true), 0.25)
+  }, [position, replyPly])
+
+  // Your own finish or flag, and a single low-time warning.
+  const myStatus = me?.playStatus ?? null
+  const previousStatus = useRef(myStatus)
+  useEffect(() => {
+    if (previousStatus.current === 'playing' && myStatus === 'finished') play('sessionEnd', 0.5)
+    if (previousStatus.current === 'playing' && myStatus === 'timed_out') play('timeout')
+    previousStatus.current = myStatus
+  }, [myStatus])
+  const lowTime = started && iAmPlaying && myRemaining !== null && myRemaining > 0 && myRemaining < 20_000
+  const lowTimeWarned = useRef(false)
+  useEffect(() => {
+    if (!lowTime || lowTimeWarned.current) return
+    lowTimeWarned.current = true
+    play('lowTime')
+  }, [lowTime])
+
   function handleDrop(sourceSquare: string, targetSquare: string | null) {
     if (!canMove || !position || !targetSquare) return false
     const board = new Chess(position.fen)
@@ -59,12 +98,14 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
     }
     setPendingFen(board.fen())
     setError('')
+    play(moveSound(attempted.san))
     void move(position.ply, attempted.lan)
       .then((result) => {
         if (result.correct) {
           setMessage('Matched the original game.')
           return
         }
+        play('deviation')
         setMessage(`Legal move, but the original game played ${result.expectedSan}.`)
         setCorrection({ fen: board.fen(), expected: result.expectedSan })
         correctionTimer.current = window.setTimeout(() => {

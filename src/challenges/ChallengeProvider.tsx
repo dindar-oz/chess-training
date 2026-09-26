@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { scoreValue } from '../../shared/accuracy.ts'
 import { ClientStockfishEngine } from '../clientStockfish'
+import { play } from '../sounds'
 import { useRealtime, useRealtimeEvent } from '../realtime/context'
 import { readApiResponse } from '../types'
 import { ChallengeContext } from './context'
@@ -36,6 +37,8 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   const [mutedChats, setMutedChats] = useState<string[]>([])
   const mutedChatsRef = useRef<string[]>([])
   const currentRef = useRef<ReceivedSnapshot | null>(null)
+  // Invitations already announced with a sound.
+  const invitationIds = useRef(new Set<string>())
   const analysisKey = useRef<string | null>(null)
   const callbacks = useRef({ onChallengeStarted, onChallengeCompleted })
   const engine = useMemo(() => new ClientStockfishEngine(), [])
@@ -45,6 +48,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
 
   const apply = useCallback((snapshot: ChallengeSnapshot) => {
     const received = { snapshot, receivedAt: performance.now() }
+    const isNewInvitation = snapshot.status === 'lobby' && snapshot.me?.inviteStatus === 'invited' && !invitationIds.current.has(snapshot.id)
+    if (snapshot.status === 'lobby' && snapshot.me?.inviteStatus === 'invited') invitationIds.current.add(snapshot.id)
+    if (isNewInvitation) play('invitation')
     setInvitations((previous) => {
       const others = previous.filter((invitation) => invitation.id !== snapshot.id)
       return snapshot.status === 'lobby' && snapshot.me?.inviteStatus === 'invited' ? [...others, snapshot] : others
@@ -66,7 +72,13 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
     }
     if (next?.snapshot.id === snapshot.id && previous?.id === snapshot.id) {
       if (previous.status === 'lobby' && snapshot.status === 'playing') callbacks.current.onChallengeStarted()
-      if (previous.status !== 'complete' && snapshot.status === 'complete') callbacks.current.onChallengeCompleted()
+      if (previous.status !== 'complete' && snapshot.status === 'complete') {
+        play('challengeEnd')
+        callbacks.current.onChallengeCompleted()
+      }
+      // The host hears each player who accepts.
+      const accepted = (players: ChallengeSnapshot['players']) => players.filter((player) => player.inviteStatus === 'accepted').length
+      if (snapshot.status === 'lobby' && snapshot.creatorId === userId && accepted(snapshot.players) > accepted(previous.players)) play('playerJoined')
     }
     currentRef.current = next
     setCurrent(next)
@@ -94,10 +106,11 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   // Only the current challenge's messages are kept; a muted chat drops them.
   const addChatMessage = useCallback((message: ChatMessage) => {
     if (message.challengeId !== currentRef.current?.snapshot.id || mutedChatsRef.current.includes(message.challengeId)) return
+    if (message.userId !== userId) play('chat')
     setChat((previous) => previous.some((existing) => existing.id === message.id)
       ? previous
       : [...previous.filter((existing) => existing.challengeId === message.challengeId), message])
-  }, [])
+  }, [userId])
 
   useRealtimeEvent('challenge_message', (data) => addChatMessage(data as ChatMessage))
 
