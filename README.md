@@ -70,7 +70,7 @@ At the start the server picks a random game from the library (preferring games o
 - The server keeps every clock: it charges thinking time, adds the increment, pauses 1.1 s after a deviation while the line is restored, and flags players whose time runs out (also after a server restart; clocks keep running while the server is down).
 - Players see each other's progress and clocks, never their moves.
 
-When everyone has finished, timed out or resigned, the **creator's browser** runs Stockfish on every position (each position is searched once, plus once per distinct move tried) and submits the results; the creator should keep the tab open, and a reload resumes the analysis. The server computes accuracies, ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP. If the analysis never arrives within 24 hours, the challenge is voided with no rating change. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
+Each player's browser analyzes **their own moves** with Stockfish in the background while they play, at the depth chosen for the challenge, and submits the results automatically as soon as they finish, time out or resign (a reload resumes it). The server ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP as soon as every player's analysis is in, which is usually within a second of the last move. If a player's analysis hasn't arrived 10 minutes after everyone finished (for example, they closed the tab), results are published without it and that player is ranked last. Players are trusted to report their own analysis. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
 
 ### Challenge chat
 
@@ -101,17 +101,12 @@ The first admin comes from the `ADMIN_USERNAMES` environment variable (comma-sep
 
 Registering first matters: promotion by name would otherwise hand admin rights to whoever registers that name. Admins listed in `ADMIN_USERNAMES` show as locked in the panel and can't be demoted, disabled or deleted there. Admins also can't change their own account, so at least one admin always remains.
 
-## Engine review
+## Sounds
 
-After the game, the app runs Stockfish in a Web Worker. The depth slider controls the same search depth for the engine's best move, the original move, and the learner's move. Higher depth is slower but generally more stable.
-
-The review reports:
-
-
-Historical matching is still determined by legal UCI equality. Engine strength and historical matching are separate: a different move can be historically incorrect but objectively stronger.
-
-Analysis depth is adjustable from `12` through `30`. Higher depth can take substantially longer; the backend allows up to two minutes per engine search.
+The app plays short sounds, synthesized in the browser (no audio files): your moves, with distinct sounds for captures, castling, promotion and check; a softer knock for the historical opponent's reply; a low tone when your move differs from the master's; session start and end; a low-time warning under 20 seconds and a flag-fall sound; the challenge countdown, start fanfare and results; invitations; a player accepting your challenge; and incoming chat messages. The **Sound on/off** switch in the header turns them off (remembered per browser).
 
 ## Engine review
 
-Stockfish runs in the Node backend. The depth slider controls the same search depth for the engine's best move, the original move, and the learner's move. Analysis depth is adjustable from `12` through `30`.
+Stockfish runs in the browser in a Web Worker. Before starting a session you pick the review depth (12-30, remembered for next time); each move is then reviewed in the background while you play: the engine searches the position's best move while you think, and the master's move and yours right after you move. The review at the end therefore appears almost immediately. Changing the depth on the review panel afterwards re-runs the review at the new depth.
+
+Each move is scored by centipawn loss against the engine's best move at the same depth, converted to an accuracy percentage; the master's original move is scored the same way for comparison. Historical matching is separate and is decided by exact move equality: a different move can be historically incorrect but objectively stronger.

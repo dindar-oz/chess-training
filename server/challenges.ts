@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
-import { analysisDeadlineMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
 import { isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
@@ -71,18 +71,18 @@ type PlayerRow = {
   rank: number | null
   elo_before: number | null
   elo_after: number | null
+  analysis_submitted_at: string | null
   current_elo: number | null
 }
 
 type MoveRow = {
   player_id: string
   ply: number
-  fen_before: string
-  expected_uci: string
-  expected_san: string
-  attempted_uci: string
-  attempted_san: string
   correct: number
+  // Centipawn losses of the player's move and of the master's move, from the
+  // player's own analysis; null until submitted.
+  cpl: number | null
+  original_cpl: number | null
 }
 
 type ParsedGame = { moves: Move[] }
@@ -91,7 +91,6 @@ let database: DatabaseSync
 let awardXp: AwardXp
 const parsedGames = new Map<string, ParsedGame>()
 const flagTimers = new Map<string, NodeJS.Timeout>()
-const analysisProgress = new Map<string, { done: number; total: number }>()
 
 const sweepIntervalMs = 30_000
 const lobbyCreatorGraceMs = 60_000
@@ -172,10 +171,16 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
   for (const player of database.prepare("SELECT challenge_players.id FROM challenge_players JOIN challenges ON challenges.id = challenge_players.challenge_id WHERE challenges.status = 'playing' AND challenge_players.play_status = 'playing'").all() as Array<{ id: string }>) {
     scheduleFlag(player.id)
   }
-  try {
-    database.exec('ALTER TABLE challenges ADD COLUMN chat_muted INTEGER NOT NULL DEFAULT 0')
-  } catch {
-    // Existing databases may already have the chat_muted column.
+  for (const migration of [
+    'ALTER TABLE challenges ADD COLUMN chat_muted INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE challenge_players ADD COLUMN analysis_submitted_at TEXT',
+    'ALTER TABLE challenge_moves ADD COLUMN original_cpl REAL',
+  ]) {
+    try {
+      database.exec(migration)
+    } catch {
+      // Existing databases may already have the column.
+    }
   }
   setInterval(sweep, sweepIntervalMs).unref()
 }
@@ -267,8 +272,10 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     const move = game.moves[me.next_ply]
     position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null }
   }
+  // A player's own moves include the position and UCI moves so their browser can
+  // analyze them; nobody receives anyone else's moves.
   const myMoves = me
-    ? (database.prepare('SELECT ply, attempted_san AS attempted, expected_san AS expected, correct FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; attempted: string; expected: string; correct: number }>)
+    ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number }>)
       .map((move) => ({ ...move, correct: move.correct === 1 }))
     : []
   return {
@@ -289,7 +296,8 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     game: revealed && challenge.game_id
       ? { id: challenge.game_id, title: challenge.game_title, white: challenge.game_white, black: challenge.game_black, event: challenge.game_event, date: challenge.game_date, result: challenge.game_result, plyCount: challenge.ply_count }
       : challenge.ply_count === null ? null : { plyCount: challenge.ply_count },
-    analysis: challenge.status === 'analyzing' ? analysisProgress.get(challenge.id) ?? null : null,
+    // While analyzing: how long results still wait for missing analyses.
+    analysisGraceInMs: challenge.status === 'analyzing' && challenge.finished_at !== null ? Math.max(0, challenge.finished_at + analysisGraceMs - now) : null,
     players: players
       .filter((player) => challenge.status === 'lobby' ? player.invite_status !== 'expired' : isParticipant(player))
       .map((player) => ({
@@ -301,13 +309,14 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
         inviteStatus: player.invite_status,
         playStatus: player.play_status,
         movesPlayed: player.moves_played,
+        analysisReady: player.analysis_submitted_at !== null || player.moves_played === 0,
         clock: clockView(player, now),
         // Results stay hidden until everyone is ranked.
         result: challenge.status === 'complete'
           ? { accuracy: player.accuracy, originalAccuracy: player.original_accuracy, averageCpl: player.average_cpl, correctMoves: player.correct_moves, deviations: player.deviations, rank: player.rank, eloBefore: player.elo_before, eloAfter: player.elo_after }
           : null,
       })),
-    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves } : null,
+    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves, analysisSubmitted: me.analysis_submitted_at !== null } : null,
   }
 }
 
@@ -360,17 +369,23 @@ function finishIfAllDone(challengeId: string) {
   const players = getPlayers(challengeId).filter(isParticipant)
   if (players.some((player) => player.play_status === 'playing')) return
   database.prepare("UPDATE challenges SET status = 'analyzing', finished_at = ? WHERE id = ?").run(Date.now(), challengeId)
-  const moveCount = (database.prepare('SELECT COUNT(*) AS count FROM challenge_moves WHERE challenge_id = ?').get(challengeId) as { count: number }).count
-  // Nothing to analyze (everyone flagged or resigned before moving): rank right away.
-  if (moveCount === 0) completeChallenge(challengeId, new Map())
-  else if (!challenge.creator_id) setStatus(challengeId, 'void')
+  // Players who finished early have usually submitted already.
+  completeIfAnalyzed(challengeId, false)
+}
+
+// Completes once every player who made a move has submitted their analysis, or
+// (with force, after the grace period) without the missing ones.
+function completeIfAnalyzed(challengeId: string, force: boolean) {
+  const challenge = getChallenge(challengeId)
+  if (!challenge || challenge.status !== 'analyzing') return
+  const waiting = getPlayers(challengeId).filter((player) => isParticipant(player) && player.user_id && player.moves_played > 0 && !player.analysis_submitted_at)
+  if (waiting.length === 0 || force) completeChallenge(challengeId)
 }
 
 // ---------- state changes ----------
 
 function setStatus(challengeId: string, status: ChallengeStatus) {
   database.prepare('UPDATE challenges SET status = ? WHERE id = ?').run(status, challengeId)
-  if (status !== 'analyzing') analysisProgress.delete(challengeId)
   if (status === 'cancelled' || status === 'void') {
     database.prepare("UPDATE challenge_players SET invite_status = 'expired' WHERE challenge_id = ? AND invite_status = 'invited'").run(challengeId)
     parsedGames.delete(challengeId)
@@ -509,50 +524,46 @@ function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<str
   return { correct, attemptedSan: attempted.san, expectedSan: expected.san, expectedUci: expected.lan }
 }
 
-// Positions to analyze, deduplicated: all players face the same historical
-// positions, so each needs one best-line search, one for the original move, and one
-// per distinct move a player tried.
-function analysisInput(challenge: ChallengeRow) {
-  const rows = database.prepare('SELECT fen_before, expected_uci, attempted_uci FROM challenge_moves WHERE challenge_id = ? ORDER BY ply').all(challenge.id) as Array<{ fen_before: string; expected_uci: string; attempted_uci: string }>
-  const positions = new Map<string, { fen: string; expectedUci: string; attemptedUcis: string[] }>()
-  for (const row of rows) {
-    const position = positions.get(row.fen_before) ?? { fen: row.fen_before, expectedUci: row.expected_uci, attemptedUcis: [] }
-    if (row.attempted_uci !== row.expected_uci && !position.attemptedUcis.includes(row.attempted_uci)) position.attemptedUcis.push(row.attempted_uci)
-    positions.set(row.fen_before, position)
+// Each player's browser analyzes their own moves (in the background while they
+// play) and submits one centipawn loss per move for their move and for the
+// master's move. Players are trusted; the server only checks the shape.
+function submitOwnAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<string, unknown>) {
+  if (!isParticipant(player) || !player.play_status || player.play_status === 'playing') throw new RequestError(409, 'Finish playing before submitting your analysis.')
+  if (challenge.status !== 'playing' && challenge.status !== 'analyzing') return
+  if (player.analysis_submitted_at) return
+  const results = Array.isArray(body.results) ? body.results as Array<Record<string, unknown>> : []
+  const plies = (database.prepare('SELECT ply FROM challenge_moves WHERE player_id = ?').all(player.id) as Array<{ ply: number }>).map((row) => row.ply)
+  const byPly = new Map<number, { cpl: number; originalCpl: number }>()
+  const validCpl = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 200_000
+  for (const result of results) {
+    if (typeof result?.ply !== 'number' || !validCpl(result.cpl) || !validCpl(result.originalCpl)) throw new RequestError(400, 'Malformed analysis result.')
+    byPly.set(result.ply, { cpl: result.cpl, originalCpl: result.originalCpl })
   }
-  return { depth: challenge.depth, positions: [...positions.values()] }
-}
-
-function submitAnalysis(challenge: ChallengeRow, user: ChallengeUser, body: Record<string, unknown>) {
-  if (challenge.creator_id !== user.id) throw new RequestError(403, 'Only the creator submits the analysis.')
-  if (challenge.status === 'complete') return
-  if (challenge.status !== 'analyzing') throw new RequestError(409, 'This challenge is not waiting for analysis.')
-  const results = Array.isArray(body.results) ? body.results : []
-  const cpls = new Map<string, number>()
-  for (const result of results as Array<Record<string, unknown>>) {
-    if (typeof result?.fen !== 'string' || typeof result.uci !== 'string' || typeof result.cpl !== 'number' || !Number.isFinite(result.cpl) || result.cpl < 0 || result.cpl > 200_000) {
-      throw new RequestError(400, 'Malformed analysis result.')
-    }
-    cpls.set(`${result.fen}|${result.uci}`, result.cpl)
-  }
-  const needed = analysisInput(challenge).positions.flatMap((position) => [position.expectedUci, ...position.attemptedUcis].map((uci) => `${position.fen}|${uci}`))
-  const missing = needed.filter((key) => !cpls.has(key)).length
-  if (missing > 0) throw new RequestError(400, `The analysis is missing ${missing} of ${needed.length} evaluations.`)
-  completeChallenge(challenge.id, cpls)
+  const missing = plies.filter((ply) => !byPly.has(ply)).length
+  if (missing > 0) throw new RequestError(400, `The analysis is missing ${missing} of ${plies.length} moves.`)
+  withTransaction(() => {
+    const update = database.prepare('UPDATE challenge_moves SET cpl = ?, original_cpl = ? WHERE player_id = ? AND ply = ?')
+    for (const ply of plies) update.run(byPly.get(ply)!.cpl, byPly.get(ply)!.originalCpl, player.id, ply)
+    database.prepare('UPDATE challenge_players SET analysis_submitted_at = ? WHERE id = ?').run(new Date().toISOString(), player.id)
+  })
+  completeIfAnalyzed(challenge.id, false)
 }
 
 function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
 }
 
-function completeChallenge(challengeId: string, cpls: Map<string, number>) {
+function completeChallenge(challengeId: string) {
   const challenge = getChallenge(challengeId)!
   const players = getPlayers(challengeId).filter(isParticipant)
-  const moves = database.prepare('SELECT player_id, ply, fen_before, expected_uci, expected_san, attempted_uci, attempted_san, correct FROM challenge_moves WHERE challenge_id = ?').all(challengeId) as MoveRow[]
+  const moves = database.prepare('SELECT player_id, ply, correct, cpl, original_cpl FROM challenge_moves WHERE challenge_id = ?').all(challengeId) as MoveRow[]
+  // A player who made moves but whose analysis never arrived has no accuracy.
+  const forfeited = (player: PlayerRow) => player.moves_played > 0 && !player.analysis_submitted_at
   const stats = new Map(players.map((player) => {
     const playerMoves = moves.filter((move) => move.player_id === player.id)
-    const attemptedCpls = playerMoves.map((move) => cpls.get(`${move.fen_before}|${move.attempted_uci}`) ?? 0)
-    const originalCpls = playerMoves.map((move) => cpls.get(`${move.fen_before}|${move.expected_uci}`) ?? 0)
+    const analyzed = forfeited(player) ? [] : playerMoves
+    const attemptedCpls = analyzed.map((move) => move.cpl ?? 0)
+    const originalCpls = analyzed.map((move) => move.original_cpl ?? 0)
     const accuracy = average(attemptedCpls.map(accuracyFromCpl))
     const originalAccuracy = average(originalCpls.map(accuracyFromCpl))
     const averageCpl = average(attemptedCpls)
@@ -573,12 +584,11 @@ function completeChallenge(challengeId: string, cpls: Map<string, number>) {
     rating: player.current_elo!,
     finished: player.play_status === 'finished',
     accuracy: stats.get(player.id)!.accuracy,
+    forfeited: forfeited(player),
   }))).map((change) => [change.id, change]))
   const completedAt = new Date().toISOString()
 
   withTransaction(() => {
-    const updateMove = database.prepare('UPDATE challenge_moves SET cpl = ? WHERE player_id = ? AND ply = ?')
-    for (const move of moves) updateMove.run(cpls.get(`${move.fen_before}|${move.attempted_uci}`) ?? null, move.player_id, move.ply)
     for (const player of players) {
       const stat = stats.get(player.id)!
       const change = changes.get(player.id)
@@ -599,7 +609,6 @@ function completeChallenge(challengeId: string, cpls: Map<string, number>) {
     }
     database.prepare("UPDATE challenges SET status = 'complete', completed_at = ? WHERE id = ?").run(completedAt, challengeId)
   })
-  analysisProgress.delete(challengeId)
   parsedGames.delete(challengeId)
   for (const [playerId, change] of changes) {
     const userId = players.find((player) => player.id === playerId)?.user_id
@@ -624,8 +633,6 @@ export function handleUserRemoved(userId: string) {
   } else if (challenge.status === 'playing' && player.play_status === 'playing') {
     stopPlayer(player, 'resigned')
     finishIfAllDone(challengeId)
-  } else if (challenge.status === 'analyzing' && challenge.creator_id === userId) {
-    setStatus(challengeId, 'void')
   }
   publish(challengeId)
 }
@@ -645,8 +652,9 @@ function sweep() {
       for (const player of getPlayers(challenge.id)) {
         if (player.play_status === 'playing' && (clockView(player, now).remainingMs ?? 0) <= 0) flagIfOverdue(player.id)
       }
-    } else if (challenge.finished_at !== null && now - challenge.finished_at > analysisDeadlineMs) {
-      setStatus(challenge.id, 'void')
+    } else if (challenge.finished_at !== null && now - challenge.finished_at > analysisGraceMs) {
+      // Missing analyses are ranked last rather than holding everyone's results.
+      completeIfAnalyzed(challenge.id, true)
       publish(challenge.id)
     }
   }
@@ -728,11 +736,6 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       sendJson(response, 200, relayChatMessage(challenge, playerFor(challenge.id, user.id)!, user, await readJson(request)))
       return true
     }
-    if (request.method === 'GET' && action === 'analysis-input') {
-      if (challenge.creator_id !== user.id || challenge.status !== 'analyzing') throw new RequestError(409, 'No analysis is pending for you.')
-      sendJson(response, 200, analysisInput(challenge))
-      return true
-    }
     if (request.method !== 'POST') throw new RequestError(405, 'Method not allowed.')
 
     if (action === 'respond') {
@@ -764,18 +767,8 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       const body = await readJson(request)
       database.prepare('UPDATE challenges SET chat_muted = ? WHERE id = ?').run(body.muted === true ? 1 : 0, challenge.id)
       publish(challenge.id)
-    } else if (action === 'analysis-progress') {
-      if (challenge.creator_id !== user.id || challenge.status !== 'analyzing') throw new RequestError(409, 'No analysis is pending for you.')
-      const body = await readJson(request)
-      const done = Number(body.done)
-      const total = Number(body.total)
-      if (!Number.isInteger(done) || !Number.isInteger(total) || done < 0 || total < done) throw new RequestError(400, 'Invalid progress.')
-      analysisProgress.set(challenge.id, { done, total })
-      for (const player of getPlayers(challenge.id)) {
-        if (player.user_id && isParticipant(player)) sendToUser(player.user_id, 'challenge_analysis_progress', { challengeId: challenge.id, done, total })
-      }
     } else if (action === 'analysis') {
-      submitAnalysis(challenge, user, await readJson(request, maxAnalysisBytes))
+      submitOwnAnalysis(challenge, playerFor(challenge.id, user.id)!, await readJson(request, maxAnalysisBytes))
       publish(challenge.id)
     } else {
       throw new RequestError(404, 'Not found.')

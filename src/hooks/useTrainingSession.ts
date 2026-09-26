@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { useClock } from './useClock'
+import { moveSound, play } from '../sounds'
 import type { TimeControl } from '../timeControl'
 import type { Side } from '../types'
 
@@ -36,6 +37,7 @@ export function useTrainingSession(originalMoves: Move[]) {
   const [timeControl, setTimeControl] = useState<TimeControl | null>(null)
   const correctionTimer = useRef<number | null>(null)
   const clock = useClock(() => {
+    play('timeout')
     setStatus('complete')
     setEndReason('timeout')
     setMessage("Time's up. The moves you played will be analyzed.")
@@ -51,6 +53,8 @@ export function useTrainingSession(originalMoves: Move[]) {
 
   useEffect(() => clearCorrectionTimer, [])
 
+  // Replays the historical opponent's moves up to your next turn, with a softer
+  // "reply" sound for the last one (or the end-of-session sound when done).
   function replayUntilUserTurn(startPly: number, selectedSide: Side) {
     const replay = new Chess()
     for (let ply = 0; ply < startPly; ply += 1) {
@@ -64,7 +68,9 @@ export function useTrainingSession(originalMoves: Move[]) {
     setGame(replay)
     setCurrentPly(nextPly)
     const complete = nextPly >= originalMoves.length
+    if (nextPly > startPly) play(moveSound(originalMoves[nextPly - 1].san, true), 0.3)
     if (complete) {
+      play('sessionEnd', 0.6)
       clock.stop()
       setStatus('complete')
       setEndReason('completed')
@@ -84,6 +90,7 @@ export function useTrainingSession(originalMoves: Move[]) {
     setEndReason(null)
     setStatus('playing')
     setMessage(selectedSide === 'w' ? 'Your move. Play the move from the original game.' : 'White starts. Watch the original move.')
+    play('sessionStart')
     const complete = selectedSide === 'b' && replayUntilUserTurn(0, selectedSide)
     if (!complete) clock.start()
   }
@@ -108,6 +115,7 @@ export function useTrainingSession(originalMoves: Move[]) {
 
     clock.stop()
     clock.addIncrement()
+    play(moveSound(attempted.san))
     const record: MoveRecord = {
       moveNumber: Math.floor(currentPly / 2) + 1,
       fenBefore: game.fen(),
@@ -120,6 +128,7 @@ export function useTrainingSession(originalMoves: Move[]) {
     setRecords([...records, record])
 
     if (!record.correct) {
+      play('deviation', 0.12)
       setGame(nextGame)
       setStatus('correction')
       setMessage(`Legal move, but the original game played ${expectedMove.san}.`)

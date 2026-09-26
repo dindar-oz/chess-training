@@ -17,6 +17,8 @@ export type ChallengePlayer = {
   inviteStatus: InviteStatus
   playStatus: PlayStatus | null
   movesPlayed: number
+  // The player's own analysis has arrived (always true with no moves).
+  analysisReady: boolean
   clock: ClockView
   result: {
     accuracy: number | null
@@ -47,7 +49,8 @@ export type ChallengeSnapshot = {
   totalMoves: number | null
   // Only the ply count until the challenge completes; the full game afterwards.
   game: { plyCount: number | null; id?: string; title?: string; white?: string; black?: string; event?: string; date?: string; result?: string } | null
-  analysis: { done: number; total: number } | null
+  // While analyzing: how long results still wait for missing analyses.
+  analysisGraceInMs: number | null
   players: ChallengePlayer[]
   me: {
     playerId: string
@@ -55,7 +58,8 @@ export type ChallengeSnapshot = {
     playStatus: PlayStatus | null
     clock: ClockView
     position: { ply: number; fen: string; moveNumber: number; previousSan: string | null } | null
-    moves: Array<{ ply: number; attempted: string; expected: string; correct: boolean }>
+    moves: Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean }>
+    analysisSubmitted: boolean
   } | null
 }
 
