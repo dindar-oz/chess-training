@@ -78,7 +78,7 @@ Each logged-in tab keeps a Server-Sent Events stream open at `GET /api/events` (
 
 ## Administrators
 
-Only admins can import games into the shared library or delete them. Admins also manage users in the **Admin** tab: promote to admin or demote, disable (logs the user out and blocks login), re-enable, or delete (permanently removes the account with its training history and XP).
+Only admins can import games into the shared library or delete them. A PGN upload can be up to 50 MB, and the library holds at most 20,000 games; once it is full, the rest of an upload is reported as not imported. Files over 1 MB upload directly without a preview. Imports run in the background on the server in short slices so the site (and running challenges) stay responsive; progress is shown live in the Admin tab, which you can leave and return to. Unreadable games and duplicates are skipped and counted, and only one import runs at a time. Admins also manage users in the **Admin** tab: promote to admin or demote, disable (logs the user out and blocks login), re-enable, or delete (permanently removes the account with its training history and XP).
 
 The first admin comes from the `ADMIN_USERNAMES` environment variable (comma-separated, case-insensitive). Listed users are promoted when the server starts, so:
 

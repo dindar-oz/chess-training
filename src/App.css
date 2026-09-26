@@ -100,6 +100,9 @@ h1 em { color: var(--green); font-style: italic; }
 .import-progress-label span { color: var(--green); font: 10px 'DM Mono', monospace; }
 .import-progress-track { background: rgba(44, 102, 93, .16); height: 5px; margin-top: 9px; }
 .import-progress-track span { background: var(--green); display: block; height: 100%; transition: width .25s ease; }
+.import-progress-note { color: var(--muted) !important; font-size: 12px; margin: 8px 0 0 !important; }
+.import-invalid { color: var(--red); font: 11px/1.6 'DM Mono', monospace; margin: 10px 0 0; padding-left: 18px; }
+.import-form textarea:disabled { opacity: .55; }
 .stats-summary { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; grid-auto-columns: 1fr; grid-auto-flow: column; margin: 52px 0; }
 .stats-summary div { padding: 22px 12px 22px 0; }
 .stats-summary div + div { border-left: 1px solid var(--line); padding-left: 20px; }

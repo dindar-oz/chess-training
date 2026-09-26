@@ -3,19 +3,19 @@ import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
 import { PgnImportPanel } from '../components/PgnImportPanel'
 import { readApiResponse } from '../types'
-import type { AdminUser, AppView, AuthUser, GameRecord } from '../types'
+import type { AdminUser, AppView, AuthUser } from '../types'
 
 type AdminViewProps = {
   user: AuthUser
   gameCount: number
-  onGamesImported: (games: GameRecord[]) => void
+  onImportFinished: () => void
   onNavigate: (view: AppView) => void
   onLogout: () => void
 }
 
 type UserAction = 'disable' | 'enable' | 'promote' | 'demote' | 'delete'
 
-export function AdminView({ user, gameCount, onGamesImported, onNavigate, onLogout }: AdminViewProps) {
+export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLogout }: AdminViewProps) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(true)
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
@@ -87,6 +87,6 @@ export function AdminView({ user, gameCount, onGamesImported, onNavigate, onLogo
         </tr>
       })}</tbody></table></div>}
     </section>
-    <PgnImportPanel onImported={onGamesImported} />
+    <PgnImportPanel onImportFinished={onImportFinished} />
   </main>
 }
