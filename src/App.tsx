@@ -6,6 +6,7 @@ import { LeaderboardView } from './views/LeaderboardView'
 import { LibraryView } from './views/LibraryView'
 import { StatsView } from './views/StatsView'
 import { TrainingView } from './views/TrainingView'
+import { RealtimeProvider } from './realtime/RealtimeProvider'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
 import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat } from './types'
@@ -107,6 +108,10 @@ function App() {
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' })
+    endSession()
+  }
+
+  function endSession() {
     setAuthUser(null)
     setSessionStats([])
     setTrainingKey(0)
@@ -156,10 +161,10 @@ function App() {
 
   // The training view stays mounted while hidden so a running clock or engine
   // review continues (and its result is saved) while the user browses other tabs.
-  return <>
+  return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
     {page}
     {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
-  </>
+  </RealtimeProvider>
 }
 
 export default App

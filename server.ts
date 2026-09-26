@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
+import { disconnectSession, disconnectUser, openEventStream, startHeartbeat } from './server/realtime.ts'
 
 type Engine = {
   listener?: (line: string) => void
@@ -176,11 +177,14 @@ function parseCookies(request: import('node:http').IncomingMessage) {
   }))
 }
 
+function userForTokenHash(tokenHash: string): User | null {
+  const row = database.prepare('SELECT users.id, users.username, users.xp, users.elo, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.disabled_at IS NULL').get(tokenHash, new Date().toISOString()) as User | undefined
+  return row ?? null
+}
+
 function currentUser(request: import('node:http').IncomingMessage): User | null {
   const token = parseCookies(request).session
-  if (!token) return null
-  const row = database.prepare('SELECT users.id, users.username, users.xp, users.elo, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.disabled_at IS NULL').get(hashToken(token), new Date().toISOString()) as User | undefined
-  return row ?? null
+  return token ? userForTokenHash(hashToken(token)) : null
 }
 
 // Sends the 401/403 itself, so callers only need to return when this yields null.
@@ -473,9 +477,23 @@ const server = createServer(async (request, response) => {
 
   if (request.method === 'POST' && request.url === '/api/auth/logout') {
     const token = parseCookies(request).session
-    if (token) database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(token))
+    if (token) {
+      database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(token))
+      disconnectSession(hashToken(token))
+    }
     clearSessionCookie(response)
     sendJson(response, 200, { ok: true })
+    return
+  }
+
+  if (request.method === 'GET' && request.url === '/api/events') {
+    const token = parseCookies(request).session
+    const user = token ? userForTokenHash(hashToken(token)) : null
+    if (!token || !user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    openEventStream(request, response, { id: user.id, username: user.username, elo: user.elo }, hashToken(token))
     return
   }
 
@@ -601,9 +619,11 @@ const server = createServer(async (request, response) => {
       if (request.method === 'DELETE') {
         // Sessions, training history and XP events cascade via foreign keys.
         database.prepare('DELETE FROM users WHERE id = ?').run(target.id)
+        disconnectUser(target.id)
       } else if (action === 'disable') {
         database.prepare('UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL').run(new Date().toISOString(), target.id)
         database.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id)
+        disconnectUser(target.id)
       } else if (action === 'enable') {
         database.prepare('UPDATE users SET disabled_at = NULL WHERE id = ?').run(target.id)
       } else {
@@ -672,6 +692,8 @@ const server = createServer(async (request, response) => {
     response.end(JSON.stringify({ error: 'Method not allowed.' }))
   }
 })
+
+startHeartbeat((tokenHash) => userForTokenHash(tokenHash) !== null)
 
 server.listen(port, '0.0.0.0', () => {
   console.error(`Chess Training listening on port ${port}`)
