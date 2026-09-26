@@ -41,6 +41,8 @@ export type ChallengeSnapshot = {
   timeControl: TimeControl
   depth: number
   createdAt: string
+  // The host muted the chat for everyone.
+  chatMuted: boolean
   startsInMs: number | null
   totalMoves: number | null
   // Only the ply count until the challenge completes; the full game afterwards.
@@ -73,6 +75,15 @@ export type ChallengeHistoryEntry = {
   eloAfter: number | null
   accuracy: number | null
   players: number
+}
+
+export type ChatMessage = {
+  id: string
+  challengeId: string
+  userId: string | null
+  username: string
+  text: string
+  createdAt: string
 }
 
 export type CreateChallengeInput = {

@@ -68,6 +68,10 @@ At the start the server picks a random game from the library (preferring games o
 
 When everyone has finished, timed out or resigned, the **creator's browser** runs Stockfish on every position (each position is searched once, plus once per distinct move tried) and submits the results; the creator should keep the tab open, and a reload resumes the analysis. The server computes accuracies, ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP. If the analysis never arrives within 24 hours, the challenge is voided with no rating change. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
 
+### Challenge chat
+
+Players in a challenge (the host and everyone who accepted) share a simple message box from the waiting room through the results. Messages are relayed live and are never stored, on the server or in the browser, so reloading the page starts with an empty chat. Any player can mute the chat for themselves, and the host can mute it for everyone, which stops all players from sending until it is unmuted.
+
 ## ELO rating
 
 Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. In a challenge, every pair of participants counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.

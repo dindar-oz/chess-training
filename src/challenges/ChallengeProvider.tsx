@@ -7,7 +7,7 @@ import { readApiResponse } from '../types'
 import { ChallengeContext } from './context'
 import type { AnalysisRun, ChallengeState } from './context'
 import { isParticipant } from './types'
-import type { ChallengeSnapshot, CreateChallengeInput, ReceivedSnapshot } from './types'
+import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 type AnalysisInput = { depth: number; positions: Array<{ fen: string; expectedUci: string; attemptedUcis: string[] }> }
 
@@ -35,6 +35,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   const [analysisRun, setAnalysisRun] = useState<AnalysisRun | null>(null)
   const [analysisAttempt, setAnalysisAttempt] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [chat, setChat] = useState<ChatMessage[]>([])
+  const [mutedChats, setMutedChats] = useState<string[]>([])
+  const mutedChatsRef = useRef<string[]>([])
   const currentRef = useRef<ReceivedSnapshot | null>(null)
   const analysisKey = useRef<string | null>(null)
   const callbacks = useRef({ onChallengeStarted, onChallengeCompleted })
@@ -90,6 +93,16 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   useEffect(() => {
     if (connected) void refresh()
   }, [connected, refresh])
+
+  // Only the current challenge's messages are kept; a muted chat drops them.
+  const addChatMessage = useCallback((message: ChatMessage) => {
+    if (message.challengeId !== currentRef.current?.snapshot.id || mutedChatsRef.current.includes(message.challengeId)) return
+    setChat((previous) => previous.some((existing) => existing.id === message.id)
+      ? previous
+      : [...previous.filter((existing) => existing.challengeId === message.challengeId), message])
+  }, [])
+
+  useRealtimeEvent('challenge_message', (data) => addChatMessage(data as ChatMessage))
 
   useRealtimeEvent('challenge_update', (data) => apply(data as ChallengeSnapshot))
   useRealtimeEvent('challenge_analysis_progress', (data) => {
@@ -153,6 +166,18 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       invitations,
       analysisRun,
       notice,
+      chat: current ? chat.filter((message) => message.challengeId === current.snapshot.id) : [],
+      chatMutedForMe: current ? mutedChats.includes(current.snapshot.id) : false,
+      sendMessage: async (text: string) => addChatMessage(await request<ChatMessage>(`/api/challenges/${challengeId()}/messages`, { text })),
+      setChatMutedForMe: (muted: boolean) => {
+        const id = currentRef.current?.snapshot.id
+        if (!id) return
+        const next = muted ? [...mutedChatsRef.current.filter((existing) => existing !== id), id] : mutedChatsRef.current.filter((existing) => existing !== id)
+        mutedChatsRef.current = next
+        setMutedChats(next)
+        if (muted) setChat((previous) => previous.filter((message) => message.challengeId !== id))
+      },
+      setChatMutedForEveryone: async (muted: boolean) => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/chat-mute`, { muted })),
       dismissNotice: () => setNotice(null),
       create: async (input: CreateChallengeInput) => apply(await request<ChallengeSnapshot>('/api/challenges', input)),
       respond: async (id: string, accept: boolean) => apply(await request<ChallengeSnapshot>(`/api/challenges/${id}/respond`, { accept })),
@@ -172,7 +197,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
         setCurrent(null)
       },
     }
-  }, [analysisRun, apply, current, invitations, notice])
+  }, [addChatMessage, analysisRun, apply, chat, current, invitations, mutedChats, notice])
 
   return <ChallengeContext.Provider value={value}>{children}</ChallengeContext.Provider>
 }

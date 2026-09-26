@@ -1,4 +1,5 @@
 import { formatTimeControl } from '../timeControl'
+import { ChallengeChat } from './ChallengeChat'
 import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
 
@@ -17,9 +18,11 @@ type ChallengeResultsProps = {
   onTrainGame: (gameId: string) => void
   onClose: () => void
   closeLabel: string
+  // Only the current challenge has a live chat; past ones are shown without it.
+  showChat: boolean
 }
 
-export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel }: ChallengeResultsProps) {
+export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel, showChat }: ChallengeResultsProps) {
   const isCreator = challenge.creatorId === userId
   const ranked = [...challenge.players].sort((a, b) => (a.result?.rank ?? 99) - (b.result?.rank ?? 99))
   const progress = analysisRun ?? (challenge.analysis ? { ...challenge.analysis, error: null } : null)
@@ -63,6 +66,7 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
     </>}
 
     {challenge.me && challenge.me.moves.length > 0 && <div className="move-log results-moves"><p className="section-label">YOUR MOVES</p>{challenge.me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>}
+    {showChat && <ChallengeChat userId={userId} />}
     {challenge.status !== 'analyzing' && <button className="primary-button results-close" onClick={onClose}>{closeLabel}</button>}
   </section>
 }

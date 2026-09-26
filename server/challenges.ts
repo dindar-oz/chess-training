@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
-import { analysisDeadlineMs, correctionDelayMs, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { analysisDeadlineMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
 import { isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
@@ -48,6 +48,7 @@ type ChallengeRow = {
   starts_at: number | null
   finished_at: number | null
   completed_at: string | null
+  chat_muted: number
 }
 
 type PlayerRow = {
@@ -171,6 +172,11 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
   for (const player of database.prepare("SELECT challenge_players.id FROM challenge_players JOIN challenges ON challenges.id = challenge_players.challenge_id WHERE challenges.status = 'playing' AND challenge_players.play_status = 'playing'").all() as Array<{ id: string }>) {
     scheduleFlag(player.id)
   }
+  try {
+    database.exec('ALTER TABLE challenges ADD COLUMN chat_muted INTEGER NOT NULL DEFAULT 0')
+  } catch {
+    // Existing databases may already have the chat_muted column.
+  }
   setInterval(sweep, sweepIntervalMs).unref()
 }
 
@@ -277,6 +283,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     timeControl: { baseSeconds: challenge.base_seconds, incrementSeconds: challenge.increment_seconds },
     depth: challenge.depth,
     createdAt: challenge.created_at,
+    chatMuted: challenge.chat_muted === 1,
     startsInMs: challenge.starts_at === null ? null : challenge.starts_at - now,
     totalMoves,
     game: revealed && challenge.game_id
@@ -645,6 +652,27 @@ function sweep() {
   }
 }
 
+// ---------- chat ----------
+
+// Chat messages are relayed live to the players and never stored: a player who
+// reloads only sees messages sent after that. Players in the challenge (host and
+// accepted) can chat from the waiting room through the results unless the host
+// has muted the chat for everyone.
+function relayChatMessage(challenge: ChallengeRow, player: PlayerRow, user: ChallengeUser, body: Record<string, unknown>) {
+  if (!isParticipant(player)) throw new RequestError(403, 'Only players in this challenge can chat.')
+  if (challenge.status === 'cancelled' || challenge.status === 'void') throw new RequestError(409, 'This challenge is closed.')
+  if (challenge.chat_muted === 1) throw new RequestError(403, 'The host has muted the chat.')
+  const text = typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : ''
+  if (!text) throw new RequestError(400, 'Type a message first.')
+  if (text.length > maxChatLength) throw new RequestError(400, `Messages are limited to ${maxChatLength} characters.`)
+  if (!allowRequest(`chat:${user.id}`, 10, 10_000)) throw new RequestError(429, 'You are sending messages too quickly.')
+  const message = { id: randomUUID(), challengeId: challenge.id, userId: user.id, username: user.username, text, createdAt: new Date().toISOString() }
+  for (const participant of getPlayers(challenge.id)) {
+    if (participant.user_id && isParticipant(participant)) sendToUser(participant.user_id, 'challenge_message', message)
+  }
+  return message
+}
+
 // ---------- routes ----------
 
 function history(userId: string) {
@@ -696,6 +724,10 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       sendJson(response, 200, snapshot(challenge, user.id))
       return true
     }
+    if (request.method === 'POST' && action === 'messages') {
+      sendJson(response, 200, relayChatMessage(challenge, playerFor(challenge.id, user.id)!, user, await readJson(request)))
+      return true
+    }
     if (request.method === 'GET' && action === 'analysis-input') {
       if (challenge.creator_id !== user.id || challenge.status !== 'analyzing') throw new RequestError(409, 'No analysis is pending for you.')
       sendJson(response, 200, analysisInput(challenge))
@@ -726,6 +758,11 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       if (challenge.status !== 'playing' || player.play_status !== 'playing') throw new RequestError(409, 'You are not playing in this challenge.')
       stopPlayer(player, 'resigned')
       finishIfAllDone(challenge.id)
+      publish(challenge.id)
+    } else if (action === 'chat-mute') {
+      if (challenge.creator_id !== user.id) throw new RequestError(403, 'Only the host can mute the chat for everyone.')
+      const body = await readJson(request)
+      database.prepare('UPDATE challenges SET chat_muted = ? WHERE id = ?').run(body.muted === true ? 1 : 0, challenge.id)
       publish(challenge.id)
     } else if (action === 'analysis-progress') {
       if (challenge.creator_id !== user.id || challenge.status !== 'analyzing') throw new RequestError(409, 'No analysis is pending for you.')

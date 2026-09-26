@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react'
-import type { ChallengeSnapshot, CreateChallengeInput, ReceivedSnapshot } from './types'
+import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 export type AnalysisRun = { challengeId: string; done: number; total: number; error: string | null }
 
@@ -9,6 +9,15 @@ export type ChallengeState = {
   // Set only in the creator's browser while it analyzes a finished challenge.
   analysisRun: AnalysisRun | null
   notice: string | null
+  // Chat of the current challenge, oldest first. Kept only in memory: messages
+  // are relayed live and never stored, so a reload starts with an empty chat.
+  chat: ChatMessage[]
+  // This player hid the chat for themselves (the current challenge only).
+  chatMutedForMe: boolean
+  sendMessage: (text: string) => Promise<void>
+  setChatMutedForMe: (muted: boolean) => void
+  // Host only: stops everyone from sending until unmuted.
+  setChatMutedForEveryone: (muted: boolean) => Promise<void>
   dismissNotice: () => void
   create: (input: CreateChallengeInput) => Promise<void>
   respond: (challengeId: string, accept: boolean) => Promise<void>
