@@ -52,6 +52,10 @@ npm run server
 
 Create an account or log in from the app. Passwords are hashed server-side with Node `scrypt`, and the session uses an HTTP-only cookie. The game database is shared between users, but training statistics are stored per user in SQLite and are never returned to another account.
 
+## Forgotten passwords
+
+Accounts have no email address, so resets are approved by an admin. On the login screen, **Forgot my password** sends a request for a username (the reply is the same whether or not the account exists). Online admins get a notice, and the Admin tab lists pending requests; **Create reset link** (also available as **Reset password** for any user) produces a one-time link valid for 24 hours, which the admin passes to the user however they like. Opening it lets the user choose a new password, after which every existing sign-in for that account is logged out. Links are stored only as hashes and a newer link replaces an older unused one. Admins set by `ADMIN_USERNAMES` cannot be reset from the panel.
+
 ## Time controls
 
 Before choosing a side, pick a time control: Untimed (default), a preset such as 10+0 or 15+10, or a custom base (1-180 minutes) plus increment (0-60 seconds). Only your clock runs; the historical opponent's moves are instant, the clock pauses while a deviation is corrected, and each of your moves adds the increment. If your flag falls, the session ends and the moves you played are analyzed. A timed-out session earns XP for matched moves only, without the completion or perfect-game bonus.

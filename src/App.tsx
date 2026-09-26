@@ -10,6 +10,8 @@ import { RealtimeProvider } from './realtime/RealtimeProvider'
 import { ChallengeProvider } from './challenges/ChallengeProvider'
 import { InvitationToasts } from './challenges/InvitationToasts'
 import { ChallengesView } from './views/ChallengesView'
+import { ResetPasswordView } from './views/ResetPasswordView'
+import { AdminNotices } from './components/AdminNotices'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
 import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat } from './types'
@@ -46,6 +48,8 @@ function App() {
   const [sessionStats, setSessionStats] = useState<SessionStat[]>([])
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
+  // Set when the page was opened from an admin-issued password reset link.
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset'))
   const [selectedGameId, setSelectedGameId] = useState(sampleGame.id)
   const [searchQuery, setSearchQuery] = useState('')
   const [gameFilter, setGameFilter] = useState<GameFilter>('all')
@@ -151,6 +155,7 @@ function App() {
     setView('training')
   }
 
+  if (resetToken) return <ResetPasswordView token={resetToken} onDone={() => window.location.replace('/')} />
   if (!authChecked) return <main className="auth-screen"><p className="eyebrow">REPLAY LAB</p><h1>Loading your study space.</h1></main>
   if (!authUser) return <AuthView onAuthenticated={setAuthUser} />
   const viewProps = { user: authUser, onNavigate: setView, onLogout: () => void logout() }
@@ -183,6 +188,7 @@ function App() {
       {page}
       {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
       <InvitationToasts onAccepted={() => setView('challenges')} />
+      {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
     </ChallengeProvider>
   </RealtimeProvider>
 }

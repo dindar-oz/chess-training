@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
-import { disconnectSession, disconnectUser, openEventStream, startHeartbeat } from './server/realtime.ts'
+import { disconnectSession, disconnectUser, openEventStream, sendToUser, startHeartbeat } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
 import { importJob, startImport } from './server/pgnImport.ts'
@@ -99,7 +99,21 @@ database.exec(`
     created_at TEXT NOT NULL,
     UNIQUE (user_id, challenge_id)
   );
-  CREATE INDEX IF NOT EXISTS rating_events_user_created_at ON rating_events (user_id, created_at DESC)
+  CREATE INDEX IF NOT EXISTS rating_events_user_created_at ON rating_events (user_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS password_reset_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    requested_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+  )
 `)
 try {
   database.exec('ALTER TABLE games ADD COLUMN fingerprint TEXT')
@@ -153,6 +167,19 @@ type User = { id: string; username: string; xp: number; elo: number; role: Role 
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
+}
+
+const resetLinkTtlMs = 24 * 60 * 60 * 1000
+const minPasswordLength = 8
+
+// Returns the user a reset token belongs to, if the token is unused and unexpired.
+function userForResetToken(token: unknown) {
+  if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) return null
+  return database.prepare(`
+    SELECT users.id, users.username, users.disabled_at AS disabledAt FROM password_reset_tokens
+    JOIN users ON users.id = password_reset_tokens.user_id
+    WHERE password_reset_tokens.token_hash = ? AND password_reset_tokens.used_at IS NULL AND password_reset_tokens.expires_at > ?
+  `).get(hashToken(token), new Date().toISOString()) as { id: string; username: string; disabledAt: string | null } | undefined ?? null
 }
 
 function hashPassword(password: string, salt: string) {
@@ -366,6 +393,56 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  // Password resets are approved by an admin: a user asks here, an admin creates a
+  // one-time link (valid 24 h) and passes it on, and the user sets a new password
+  // with it. Responses never reveal whether a username exists.
+  if (request.method === 'POST' && request.url === '/api/auth/forgot') {
+    try {
+      if (!allowRequest(`auth:forgot:${clientAddress(request)}`, 5, 60 * 60 * 1000)) throw new RequestError(429, 'Too many reset requests. Please try again later.')
+      const body = await readJson(request)
+      const username = typeof body.username === 'string' ? body.username.trim() : ''
+      const user = username ? database.prepare('SELECT id, username FROM users WHERE username = ? AND disabled_at IS NULL').get(username) as { id: string; username: string } | undefined : undefined
+      const pending = user ? database.prepare('SELECT 1 FROM password_reset_requests WHERE user_id = ? AND resolved_at IS NULL').get(user.id) : undefined
+      if (user && !pending) {
+        database.prepare('INSERT INTO password_reset_requests (id, user_id, requested_at) VALUES (?, ?, ?)').run(randomUUID(), user.id, new Date().toISOString())
+        const admins = database.prepare("SELECT id FROM users WHERE role = 'admin' AND disabled_at IS NULL").all() as Array<{ id: string }>
+        for (const admin of admins) sendToUser(admin.id, 'password_reset_request', { username: user.username })
+      }
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'The request failed.' })
+    }
+    return
+  }
+
+  if (request.method === 'POST' && (request.url === '/api/auth/reset/check' || request.url === '/api/auth/reset')) {
+    try {
+      if (!allowRequest(`auth:reset:${clientAddress(request)}`, 30, 15 * 60 * 1000)) throw new RequestError(429, 'Too many attempts. Please try again later.')
+      const body = await readJson(request)
+      const user = userForResetToken(body.token)
+      if (!user) throw new RequestError(400, 'This reset link is invalid, already used, or expired. Ask an admin for a new one.')
+      if (user.disabledAt) throw new RequestError(403, 'This account has been disabled.')
+      if (request.url === '/api/auth/reset/check') {
+        sendJson(response, 200, { username: user.username })
+        return
+      }
+      const password = typeof body.password === 'string' ? body.password : ''
+      if (password.length < minPasswordLength) throw new RequestError(400, `Password must be at least ${minPasswordLength} characters.`)
+      const salt = randomBytes(16).toString('hex')
+      const now = new Date().toISOString()
+      database.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?').run(hashPassword(password, salt), salt, user.id)
+      database.prepare('UPDATE password_reset_tokens SET used_at = ? WHERE token_hash = ?').run(now, hashToken(body.token as string))
+      database.prepare('UPDATE password_reset_requests SET resolved_at = ? WHERE user_id = ? AND resolved_at IS NULL').run(now, user.id)
+      // Sign out everywhere: whoever had the old password loses access.
+      database.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id)
+      disconnectUser(user.id)
+      sendJson(response, 200, { ok: true, username: user.username })
+    } catch (error) {
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'The password reset failed.' })
+    }
+    return
+  }
+
   if (request.method === 'POST' && request.url === '/api/auth/logout') {
     const token = parseCookies(request).session
     if (token) {
@@ -494,7 +571,27 @@ const server = createServer(async (request, response) => {
     return
   }
 
-  const adminUserMatch = request.url?.match(/^\/api\/admin\/users\/([^/]+)(?:\/(disable|enable|role))?$/)
+  if (request.method === 'GET' && request.url === '/api/admin/password-resets') {
+    if (!requireAdmin(request, response)) return
+    const rows = database.prepare(`
+      SELECT password_reset_requests.id, users.id AS userId, users.username, password_reset_requests.requested_at AS requestedAt
+      FROM password_reset_requests JOIN users ON users.id = password_reset_requests.user_id
+      WHERE password_reset_requests.resolved_at IS NULL
+      ORDER BY password_reset_requests.requested_at
+    `).all()
+    sendJson(response, 200, rows)
+    return
+  }
+
+  const resetDismissMatch = request.url?.match(/^\/api\/admin\/password-resets\/([0-9a-f-]{36})\/dismiss$/)
+  if (request.method === 'POST' && resetDismissMatch) {
+    if (!requireAdmin(request, response)) return
+    database.prepare('UPDATE password_reset_requests SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL').run(new Date().toISOString(), resetDismissMatch[1])
+    sendJson(response, 200, { ok: true })
+    return
+  }
+
+  const adminUserMatch = request.url?.match(/^\/api\/admin\/users\/([^/]+)(?:\/(disable|enable|role|reset-link))?$/)
   if (adminUserMatch && (request.method === 'POST' || request.method === 'DELETE')) {
     const admin = requireAdmin(request, response)
     if (!admin) return
@@ -507,6 +604,19 @@ const server = createServer(async (request, response) => {
       if (target.id === admin.id) throw new RequestError(400, 'You cannot change your own account.')
       if (isLockedAdmin(target.username)) throw new RequestError(400, `${target.username} is an admin set by ADMIN_USERNAMES and cannot be changed here.`)
 
+      if (action === 'reset-link') {
+        const disabled = database.prepare('SELECT disabled_at FROM users WHERE id = ?').get(target.id) as { disabled_at: string | null }
+        if (disabled.disabled_at) throw new RequestError(409, 'Enable the account before resetting its password.')
+        // Only the newest link works; the token itself is returned once and stored hashed.
+        const token = randomBytes(32).toString('hex')
+        const now = new Date()
+        const expiresAt = new Date(now.getTime() + resetLinkTtlMs).toISOString()
+        database.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? AND used_at IS NULL').run(target.id)
+        database.prepare('INSERT INTO password_reset_tokens (token_hash, user_id, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)').run(hashToken(token), target.id, admin.id, now.toISOString(), expiresAt)
+        database.prepare('UPDATE password_reset_requests SET resolved_at = ? WHERE user_id = ? AND resolved_at IS NULL').run(now.toISOString(), target.id)
+        sendJson(response, 200, { token, username: target.username, expiresAt })
+        return
+      }
       if (request.method === 'DELETE') {
         // Sessions, training history and XP events cascade via foreign keys.
         handleUserRemoved(target.id)
