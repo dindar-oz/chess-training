@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
-import { accuracyFromCpl } from '../stockfish'
+import { accuracyFromCpl } from '../../shared/accuracy.ts'
 // Rollback: swap this import back to `import { StockfishEngine } from '../stockfish'`
 // to restore server-side analysis via /api/analyze (untouched in server.ts).
 import { ClientStockfishEngine as StockfishEngine } from '../clientStockfish'

@@ -72,6 +72,4 @@ export class StockfishEngine {
   }
 }
 
-export function accuracyFromCpl(cpl: number) {
-  return Math.round(100 * Math.exp(-cpl / 100))
-}
+export { accuracyFromCpl } from '../shared/accuracy.ts'
