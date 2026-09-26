@@ -15,5 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["server.ts", "shared", "src/types/stockfish.d.ts"]
+  "include": ["server.ts", "server", "shared", "src/types/stockfish.d.ts"]
 }

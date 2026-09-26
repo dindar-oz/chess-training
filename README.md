@@ -60,6 +60,10 @@ Before choosing a side, pick a time control: Untimed (default), a preset such as
 
 Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. In a challenge, every pair of participants counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.
 
+## Live updates
+
+Each logged-in tab keeps a Server-Sent Events stream open at `GET /api/events` (at most 5 per user). It drives the online count in the header and the online dots on the leaderboard, and will carry challenge invitations. A user is online while at least one tab is connected. The server sends a heartbeat every 25 seconds, which also closes streams whose session expired or was revoked; logging out, disabling or deleting a user closes their streams immediately. Presence lives in server memory, so run a single server instance. Behind a reverse proxy, disable response buffering for `/api/events` (the server already sends `X-Accel-Buffering: no` for nginx).
+
 ## Administrators
 
 Only admins can import games into the shared library or delete them. Admins also manage users in the **Admin** tab: promote to admin or demote, disable (logs the user out and blocks login), re-enable, or delete (permanently removes the account with its training history and XP).
