@@ -21,3 +21,16 @@ jobs:
           context: .
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/chess-training:latest
+
+      # Tells the Azure Web App to pull the image just pushed. The secret holds the
+      # app's continuous-deployment webhook URL (it embeds deploy credentials).
+      - name: Redeploy Azure Web App
+        env:
+          WEBHOOK_URL: ${{ secrets.AZURE_WEBAPP_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "AZURE_WEBAPP_WEBHOOK_URL is not set; skipping redeploy."
+            exit 0
+          fi
+          curl --fail --silent --show-error --max-time 60 -X POST "$WEBHOOK_URL"
+          echo "Azure redeploy triggered."
