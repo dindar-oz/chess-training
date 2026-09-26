@@ -9,8 +9,10 @@ export const maxInvitees = 9
 export const minDepth = 12
 export const maxDepth = 30
 export const defaultDepth = 16
-// A challenge whose creator never finishes the analysis is voided after this long.
-export const analysisDeadlineMs = 24 * 60 * 60 * 1000
+// Each player's browser analyzes their own moves. Once everyone has finished
+// playing, results wait this long for missing analyses; a player whose analysis
+// never arrives is ranked last.
+export const analysisGraceMs = 10 * 60 * 1000
 // Prefer games long enough to be a real test; shorter ones are used only if nothing else exists.
 export const preferredMinPlies = 20
 export const maxChatLength = 500

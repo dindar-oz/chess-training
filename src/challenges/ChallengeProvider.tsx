@@ -9,9 +9,6 @@ import type { AnalysisRun, ChallengeState } from './context'
 import { isParticipant } from './types'
 import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
-type AnalysisInput = { depth: number; positions: Array<{ fen: string; expectedUci: string; attemptedUcis: string[] }> }
-
-const progressReportIntervalMs = 2000
 const activeStatuses = ['lobby', 'playing', 'analyzing']
 
 async function request<T>(path: string, body?: unknown) {
@@ -105,55 +102,55 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   useRealtimeEvent('challenge_message', (data) => addChatMessage(data as ChatMessage))
 
   useRealtimeEvent('challenge_update', (data) => apply(data as ChallengeSnapshot))
-  useRealtimeEvent('challenge_analysis_progress', (data) => {
-    const { challengeId, done, total } = data as { challengeId: string; done: number; total: number }
-    const received = currentRef.current
-    if (received?.snapshot.id !== challengeId) return
-    const next = { ...received, snapshot: { ...received.snapshot, analysis: { done, total } } }
-    currentRef.current = next
-    setCurrent(next)
-  })
 
-  // The creator's browser analyzes the finished challenge. Keyed by challenge and
-  // attempt so progress updates don't restart it; not cancelled on re-render.
+  // Every player's browser analyzes their own moves in the background while they
+  // play: the position's best move while they think, then the master's move and
+  // theirs right after they move. Results are cached in the engine.
+  const snapshot = current?.snapshot
+  const myMoves = snapshot?.me?.moves
+  const myPositionFen = snapshot?.status === 'playing' ? snapshot.me?.position?.fen ?? null : null
+  const challengeIdForAnalysis = snapshot?.id ?? null
+  const depth = snapshot?.depth ?? 0
   useEffect(() => {
-    const snapshot = current?.snapshot
-    if (!snapshot || snapshot.status !== 'analyzing' || snapshot.creatorId !== userId) return
-    const key = `${snapshot.id}:${analysisAttempt}`
+    if (!challengeIdForAnalysis) return
+    const isStale = () => currentRef.current?.snapshot.id !== challengeIdForAnalysis
+    if (myPositionFen) void engine.prefetch(myPositionFen, depth, null, null, isStale)
+    for (const move of myMoves ?? []) void engine.prefetch(move.fen, depth, move.expectedUci, move.attemptedUci, isStale)
+  }, [challengeIdForAnalysis, depth, engine, myMoves, myPositionFen])
+
+  // Once you've finished (or timed out or resigned), your browser completes the
+  // analysis of your moves and submits it automatically; a reload resumes it.
+  const mustSubmit = Boolean(snapshot && snapshot.me && (snapshot.status === 'playing' || snapshot.status === 'analyzing')
+    && snapshot.me.playStatus && snapshot.me.playStatus !== 'playing' && snapshot.me.moves.length > 0 && !snapshot.me.analysisSubmitted)
+  useEffect(() => {
+    if (!mustSubmit || !challengeIdForAnalysis) return
+    const key = `${challengeIdForAnalysis}:${analysisAttempt}`
     if (analysisKey.current === key) return
     analysisKey.current = key
-    const challengeId = snapshot.id
+    const challengeId = challengeIdForAnalysis
+    const moves = currentRef.current?.snapshot.me?.moves ?? []
 
     async function run() {
       try {
-        const input = await request<AnalysisInput>(`/api/challenges/${challengeId}/analysis-input`)
-        const total = input.positions.reduce((sum, position) => sum + 2 + position.attemptedUcis.length, 0)
         let done = 0
-        let lastReport = 0
-        setAnalysisRun({ challengeId, done, total, error: null })
-        const results: Array<{ fen: string; uci: string; cpl: number }> = []
-        for (const position of input.positions) {
-          const best = scoreValue(await engine.analyze(position.fen, input.depth))
+        setAnalysisRun({ challengeId, done, total: moves.length, error: null })
+        const results: Array<{ ply: number; cpl: number; originalCpl: number }> = []
+        for (const move of moves) {
+          const best = scoreValue(await engine.analyze(move.fen, depth))
+          const original = scoreValue(await engine.analyze(move.fen, depth, move.expectedUci))
+          const attempted = scoreValue(await engine.analyze(move.fen, depth, move.attemptedUci))
+          results.push({ ply: move.ply, cpl: Math.max(0, best - attempted), originalCpl: Math.max(0, best - original) })
           done += 1
-          for (const uci of [position.expectedUci, ...position.attemptedUcis]) {
-            const value = scoreValue(await engine.analyze(position.fen, input.depth, uci))
-            results.push({ fen: position.fen, uci, cpl: Math.max(0, best - value) })
-            done += 1
-          }
-          setAnalysisRun({ challengeId, done, total, error: null })
-          if (Date.now() - lastReport > progressReportIntervalMs) {
-            lastReport = Date.now()
-            void request(`/api/challenges/${challengeId}/analysis-progress`, { done, total }).catch(() => undefined)
-          }
+          setAnalysisRun({ challengeId, done, total: moves.length, error: null })
         }
         apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId}/analysis`, { results }))
         setAnalysisRun(null)
       } catch (error) {
-        setAnalysisRun((previous) => ({ challengeId, done: previous?.done ?? 0, total: previous?.total ?? 0, error: error instanceof Error ? error.message : 'The analysis failed.' }))
+        setAnalysisRun((previous) => ({ challengeId, done: previous?.done ?? 0, total: previous?.total ?? moves.length, error: error instanceof Error ? error.message : 'The analysis failed.' }))
       }
     }
     void run()
-  }, [analysisAttempt, apply, current, engine, userId])
+  }, [analysisAttempt, apply, challengeIdForAnalysis, depth, engine, mustSubmit])
 
   const value = useMemo<ChallengeState>(() => {
     const challengeId = () => {

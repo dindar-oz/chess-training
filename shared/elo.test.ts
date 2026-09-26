@@ -34,6 +34,16 @@ test('finishers rank above timeouts regardless of accuracy', () => {
   assert.ok(changes.timedOut.delta < 0)
 })
 
+test('a forfeited player ranks below finishers and timeouts', () => {
+  const forfeited = { ...player('gone', 99), forfeited: true }
+  const timedOut = player('slow', 10, initialRating, false)
+  assert.equal(pairScore(timedOut, forfeited), 1)
+  assert.equal(pairScore(player('done', 20), forfeited), 1)
+  const changes = byId(computeRatingChanges([player('done', 20), timedOut, forfeited]))
+  assert.deepEqual([changes.done.rank, changes.slow.rank, changes.gone.rank], [1, 2, 3])
+  assert.ok(changes.gone.delta < 0)
+})
+
 test('timeouts are ordered among themselves by accuracy, null counting as 0', () => {
   assert.equal(pairScore(player('x', 30, 1200, false), player('y', null, 1200, false)), 1)
 })

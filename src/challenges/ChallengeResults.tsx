@@ -23,25 +23,29 @@ type ChallengeResultsProps = {
 }
 
 export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel, showChat }: ChallengeResultsProps) {
-  const isCreator = challenge.creatorId === userId
   const ranked = [...challenge.players].sort((a, b) => (a.result?.rank ?? 99) - (b.result?.rank ?? 99))
-  const progress = analysisRun ?? (challenge.analysis ? { ...challenge.analysis, error: null } : null)
   const game = challenge.game
+  const graceMinutes = challenge.analysisGraceInMs === null ? null : Math.max(1, Math.ceil(challenge.analysisGraceInMs / 60_000))
 
   return <section className="history-section challenge-results">
     {challenge.status === 'analyzing' && <>
       <div className="section-heading"><div><p className="section-label">ENGINE REVIEW</p><h2>Everyone is done. Scoring the moves.</h2></div></div>
-      <div className="analysis-progress" aria-live="polite">
-        <div className="analysis-progress-label"><strong>{isCreator ? 'Your browser is analyzing at depth ' + challenge.depth : `${challenge.creatorName}'s browser is analyzing at depth ${challenge.depth}`}</strong><span>{progress && progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : 'Starting...'}</span></div>
-        <div className="analysis-progress-track"><span style={{ width: `${progress && progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }} /></div>
-        <div className="analysis-progress-meta"><span>{progress ? `${progress.done} of ${progress.total} evaluations` : 'Waiting for the first evaluations'}</span><span>{isCreator ? 'Keep this tab open until it finishes' : 'Results appear here automatically'}</span></div>
-      </div>
-      {isCreator && analysisRun?.error && <div className="admin-error">The analysis stopped: {analysisRun.error} <button className="text-button" onClick={onRetryAnalysis}>Retry</button></div>}
+      {analysisRun && <div className="analysis-progress" aria-live="polite">
+        <div className="analysis-progress-label"><strong>Your browser is analyzing your moves at depth {challenge.depth}</strong><span>{analysisRun.total > 0 ? `${Math.round((analysisRun.done / analysisRun.total) * 100)}%` : ''}</span></div>
+        <div className="analysis-progress-track"><span style={{ width: `${analysisRun.total > 0 ? (analysisRun.done / analysisRun.total) * 100 : 0}%` }} /></div>
+        <div className="analysis-progress-meta"><span>{analysisRun.done} of {analysisRun.total} moves</span><span>Keep this page open until it's sent</span></div>
+      </div>}
+      {analysisRun?.error && <div className="admin-error">Your analysis stopped: {analysisRun.error} <button className="text-button" onClick={onRetryAnalysis}>Retry</button></div>}
+      <div className="analysis-players">{challenge.players.map((player) => <div key={player.playerId} className={player.analysisReady ? 'ready' : ''}>
+        <strong>{player.userId === userId ? 'You' : player.username}</strong>
+        <span>{player.analysisReady ? 'Analysis in ✓' : 'Analyzing...'}</span>
+      </div>)}</div>
+      <p className="results-note">Each player's browser analyzes their own moves and sends them automatically. Results appear as soon as everyone's analysis is in{graceMinutes !== null && `; anyone still missing in ${graceMinutes} minute${graceMinutes === 1 ? '' : 's'} is ranked last`}.</p>
     </>}
 
     {challenge.status === 'void' && <>
       <div className="section-heading"><div><p className="section-label">CHALLENGE VOIDED</p><h2>The analysis never arrived.</h2></div></div>
-      <p className="empty-log">The creator's browser didn't finish the engine review within 24 hours, so nobody's rating changed.</p>
+      <p className="empty-log">This challenge was voided, so nobody's rating changed.</p>
     </>}
 
     {challenge.status === 'complete' && <>

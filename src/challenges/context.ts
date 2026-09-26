@@ -6,7 +6,7 @@ export type AnalysisRun = { challengeId: string; done: number; total: number; er
 export type ChallengeState = {
   current: ReceivedSnapshot | null
   invitations: ChallengeSnapshot[]
-  // Set only in the creator's browser while it analyzes a finished challenge.
+  // Progress of this browser's analysis of your own moves once you've finished.
   analysisRun: AnalysisRun | null
   notice: string | null
   // Chat of the current challenge, oldest first. Kept only in memory: messages

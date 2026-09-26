@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { accuracyFromCpl } from '../../shared/accuracy.ts'
@@ -29,6 +29,13 @@ type TrainingViewProps = {
 }
 
 const timeControlStorageKey = 'chess-training-time-control'
+const depthStorageKey = 'chess-training-analysis-depth'
+const defaultDepth = 12
+
+function storedDepth() {
+  const stored = readStored<unknown>(depthStorageKey, defaultDepth)
+  return typeof stored === 'number' && Number.isInteger(stored) && stored >= 12 && stored <= 30 ? stored : defaultDepth
+}
 
 function getOpeningGame(pgn: string) {
   const parsed = new Chess()
@@ -54,7 +61,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
   const session = useTrainingSession(originalMoves)
   const { side, status, records, setMessage } = session
   const [selectedTimeControl, setSelectedTimeControl] = useState<TimeControl | null>(storedTimeControl)
-  const [analysisDepth, setAnalysisDepth] = useState(12)
+  const [analysisDepth, setAnalysisDepth] = useState(storedDepth)
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'running' | 'ready' | 'failed'>('idle')
   const [analysisResults, setAnalysisResults] = useState<EngineResult[]>([])
   const [analysisCurrentMove, setAnalysisCurrentMove] = useState(0)
@@ -62,6 +69,11 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
   const [analysisStartedAt, setAnalysisStartedAt] = useState<number | null>(null)
   const [analysisElapsedSeconds, setAnalysisElapsedSeconds] = useState(0)
   const sessionStartedAt = useRef<string | null>(null)
+  // Mirrors sessionStartedAt for rendering and effects; the ref is what staleness
+  // checks read, since they run later from the engine queue.
+  const [sessionToken, setSessionToken] = useState<string | null>(null)
+  // Moves whose engine searches already finished in the background.
+  const [backgroundReady, setBackgroundReady] = useState(0)
   const savedStatKey = useRef<string | null>(null)
   const [lastXpGained, setLastXpGained] = useState<number | null>(null)
   const engine = useMemo(() => new StockfishEngine(), [])
@@ -82,7 +94,30 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     ? Math.ceil((analysisElapsedSeconds / analysisResults.length) * analysisRemainingMoves)
     : null
 
-  useEffect(() => () => engine.terminate(), [engine])
+  useEffect(() => () => {
+    // Background searches for this session are skipped once the view is gone.
+    sessionStartedAt.current = null
+    engine.terminate()
+  }, [engine])
+
+  // Background review: while it's your turn, the engine searches the best move and
+  // the master's move for the position; after you move, it searches your move.
+  // The end-of-game review then reuses these cached results.
+  const isStale = useCallback((token: string | null) => () => sessionStartedAt.current !== token, [])
+  const expectedUci = session.expectedMove?.lan ?? null
+  const positionFen = session.game.fen()
+  useEffect(() => {
+    if (status !== 'playing' || !session.isUsersTurn || !expectedUci) return
+    void engine.prefetch(positionFen, analysisDepth, expectedUci, null, isStale(sessionToken))
+  }, [analysisDepth, engine, expectedUci, isStale, positionFen, session.isUsersTurn, sessionToken, status])
+
+  const latestRecord = records.at(-1)
+  useEffect(() => {
+    if (!latestRecord) return
+    const token = sessionToken
+    void engine.prefetch(latestRecord.fenBefore, analysisDepth, latestRecord.expectedUci, latestRecord.attemptedUci, isStale(token))
+      .then((finished) => { if (finished && sessionStartedAt.current === token) setBackgroundReady((count) => count + 1) })
+  }, [analysisDepth, engine, isStale, latestRecord, sessionToken])
 
   useEffect(() => {
     if (analysisStatus !== 'running' || analysisStartedAt === null) return
@@ -166,6 +201,11 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     setAnalysisElapsedSeconds(0)
   }
 
+  function chooseDepth(depth: number) {
+    setAnalysisDepth(depth)
+    writeStored(depthStorageKey, depth)
+  }
+
   function chooseTimeControl(timeControl: TimeControl | null) {
     setSelectedTimeControl(timeControl)
     writeStored(timeControlStorageKey, timeControl)
@@ -173,8 +213,10 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
 
   function beginTraining(selectedSide: Side) {
     sessionStartedAt.current = `${Date.now()}-${selectedGame.id}`
+    setSessionToken(sessionStartedAt.current)
     savedStatKey.current = null
     setLastXpGained(null)
+    setBackgroundReady(0)
     resetAnalysis()
     session.start(selectedSide, selectedTimeControl)
   }
@@ -227,6 +269,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
           {status === 'selecting' ? (
             <div className="choice-block">
               <TimeControlPicker value={selectedTimeControl} onChange={chooseTimeControl} />
+              <label className="depth-control">REVIEW DEPTH <strong>{analysisDepth}</strong><input type="range" min="12" max="30" value={analysisDepth} onChange={(event) => chooseDepth(Number(event.target.value))} /><small>The engine reviews your moves in the background while you play; deeper is slower.</small></label>
               <p className="section-label">CHOOSE YOUR SIDE</p>
               <button className="side-choice" onClick={() => beginTraining('w')}><span>♔</span><strong>White</strong><small>{selectedGame.white}</small><b>→</b></button>
               <button className="side-choice" onClick={() => beginTraining('b')}><span>♚</span><strong>Black</strong><small>{selectedGame.black}</small><b>→</b></button>
@@ -238,6 +281,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
               <div className="progress-row"><span>PROGRESS</span><strong>{Math.min(session.currentPly, originalMoves.length)} / {originalMoves.length} PLY</strong></div>
               <div className="progress-track"><span style={{ width: `${(session.currentPly / originalMoves.length) * 100}%` }} /></div>
               <div className="score-grid"><div><strong>{correctCount}</strong><span>MATCHED</span></div><div><strong>{records.length - correctCount}</strong><span>DEVIATIONS</span></div></div>
+              {status !== 'complete' && records.length > 0 && <p className="background-review">ENGINE REVIEW · {Math.min(backgroundReady, records.length)} / {records.length} MOVES READY · DEPTH {analysisDepth}</p>}
               <div className="move-log"><p className="section-label">YOUR ATTEMPTS</p>{records.length === 0 ? <p className="empty-log">Your recorded moves will appear here.</p> : records.map((record, index) => <div className="move-row" key={`${record.moveNumber}-${index}`}><span>{record.moveNumber}{side === 'b' ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>
               {status === 'complete' && records.length > 0 && <section className="engine-review">
                 <div className="review-heading"><p className="section-label">ENGINE REVIEW</p><span className={analysisStatus}>{analysisStatus === 'running' ? 'ANALYZING' : analysisStatus === 'ready' ? 'READY' : analysisStatus === 'failed' ? 'UNAVAILABLE' : 'WAITING'}</span></div>

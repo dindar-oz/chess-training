@@ -233,6 +233,8 @@ h1 em { color: var(--green); font-style: italic; }
 .depth-control { color: var(--muted); display: grid; font: 10px 'DM Mono', monospace; gap: 7px; letter-spacing: .1em; margin: 18px 0; }
 .depth-control strong { color: var(--ink); font-size: 13px; letter-spacing: 0; }
 .depth-control input { accent-color: var(--green); width: 100%; }
+.depth-control small { color: var(--muted); font: 11px/1.4 'DM Sans', sans-serif; letter-spacing: 0; }
+.background-review { color: var(--green); font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; margin: -14px 0 24px; }
 .analysis-progress { background: var(--green-soft); margin: 4px 0 18px; padding: 13px; }
 .analysis-progress-label, .analysis-progress-meta { display: flex; justify-content: space-between; gap: 12px; }
 .analysis-progress-label { color: var(--ink); font-size: 12px; }
@@ -313,6 +315,11 @@ h1 em { color: var(--green); font-style: italic; }
 .revealed-game strong { color: var(--ink); display: block; font: 600 22px 'Playfair Display', serif; }
 .revealed-game span { color: var(--muted); font-size: 12px; }
 .results-table td:first-child { min-width: 0; }
+.analysis-players { border-top: 1px solid var(--line); display: grid; margin: 18px 0 6px; max-width: 460px; }
+.analysis-players div { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 10px 0; }
+.analysis-players strong { color: var(--ink); font-size: 14px; }
+.analysis-players span { color: var(--amber); font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+.analysis-players .ready span { color: var(--green); }
 .results-note { color: var(--muted); font-size: 12px; margin: 14px 0 28px; }
 .results-moves { margin: 10px 0 24px; max-width: 460px; }
 .results-close { margin-top: 10px; }

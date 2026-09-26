@@ -1,6 +1,7 @@
 // Multiplayer ELO for challenges. Every pair of participants counts as one game:
-// a finisher beats anyone who timed out or left; otherwise higher accuracy wins,
-// and accuracies closer than drawAccuracyMargin are a draw. K is divided by
+// a finisher beats anyone who timed out or left, and both beat a player whose
+// analysis never arrived (forfeited); otherwise higher accuracy wins, and
+// accuracies closer than drawAccuracyMargin are a draw. K is divided by
 // (players - 1) so a big challenge moves ratings about as much as a duel.
 // Pure and dependency-free so both the server and tests can import it.
 
@@ -16,6 +17,8 @@ export type RatedParticipant = {
   finished: boolean
   // Average accuracy (0-100) over the moves the player made; null if none.
   accuracy: number | null
+  // The player's analysis never arrived; ranks below everyone else.
+  forfeited?: boolean
 }
 
 export type RatingChange = {
@@ -28,8 +31,12 @@ export type RatingChange = {
 }
 
 // 1 = a beats b, 0.5 = draw, 0 = b beats a.
+function tier(participant: RatedParticipant) {
+  return participant.forfeited ? 0 : participant.finished ? 2 : 1
+}
+
 export function pairScore(a: RatedParticipant, b: RatedParticipant) {
-  if (a.finished !== b.finished) return a.finished ? 1 : 0
+  if (tier(a) !== tier(b)) return tier(a) > tier(b) ? 1 : 0
   const difference = (a.accuracy ?? 0) - (b.accuracy ?? 0)
   if (Math.abs(difference) < drawAccuracyMargin) return 0.5
   return difference > 0 ? 1 : 0
