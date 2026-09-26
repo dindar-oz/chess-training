@@ -5,12 +5,15 @@ export type RealtimeHandler = (data: unknown) => void
 
 export type RealtimeState = {
   connected: boolean
+  // The server runs a newer build than this page was loaded from.
+  updateAvailable: boolean
   onlineUsers: OnlineUser[]
   subscribe: (type: string, handler: RealtimeHandler) => () => void
 }
 
 export const RealtimeContext = createContext<RealtimeState>({
   connected: false,
+  updateAvailable: false,
   onlineUsers: [],
   subscribe: () => () => undefined,
 })

@@ -530,6 +530,28 @@ function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<str
 function submitOwnAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<string, unknown>) {
   if (!isParticipant(player) || !player.play_status || player.play_status === 'playing') throw new RequestError(409, 'Finish playing before submitting your analysis.')
   if (challenge.status !== 'playing' && challenge.status !== 'analyzing') return
+  storeAnalysis(challenge, player, body)
+}
+
+// Another player may analyze for someone who finished the game on time but whose
+// own analysis hasn't arrived (they left, or their page is out of date). Only
+// once everyone is done, so nobody sees another player's moves during the game;
+// the first complete analysis wins.
+function helperTarget(challenge: ChallengeRow, helper: PlayerRow | undefined, targetId: string) {
+  if (!helper || !isParticipant(helper)) throw new RequestError(403, 'Only players in this challenge can help with its analysis.')
+  if (challenge.status !== 'analyzing') throw new RequestError(409, 'This challenge is not waiting for analysis.')
+  const target = getPlayer(targetId)
+  if (!target || target.challenge_id !== challenge.id || !isParticipant(target)) throw new RequestError(404, 'Player not found.')
+  if (target.play_status !== 'finished') throw new RequestError(409, 'Only players who finished the game on time are analyzed by others.')
+  return target
+}
+
+function helperMoves(challenge: ChallengeRow, target: PlayerRow) {
+  const moves = database.prepare('SELECT ply, fen_before AS fen, expected_uci AS expectedUci, attempted_uci AS attemptedUci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(target.id)
+  return { depth: challenge.depth, analysisReady: target.analysis_submitted_at !== null, moves }
+}
+
+function storeAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<string, unknown>) {
   if (player.analysis_submitted_at) return
   const results = Array.isArray(body.results) ? body.results as Array<Record<string, unknown>> : []
   const plies = (database.prepare('SELECT ply FROM challenge_moves WHERE player_id = ?').all(player.id) as Array<{ ply: number }>).map((row) => row.ply)
@@ -719,6 +741,22 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       if (!allowRequest(`challenge:create:${user.id}`, 20, 60 * 60 * 1000)) throw new RequestError(429, 'Too many challenges created. Please try again later.')
       const challengeId = createChallenge(user, await readJson(request))
       sendJson(response, 200, snapshot(getChallenge(challengeId)!, user.id))
+      return true
+    }
+
+    const helperMatch = url.match(/^\/api\/challenges\/([0-9a-f-]{36})\/players\/([0-9a-f-]{36})\/(moves|analysis)$/)
+    if (helperMatch) {
+      const challenge = getChallenge(helperMatch[1])
+      if (!challenge) throw new RequestError(404, 'Challenge not found.')
+      const target = helperTarget(challenge, playerFor(challenge.id, user.id), helperMatch[2])
+      if (request.method === 'GET' && helperMatch[3] === 'moves') {
+        sendJson(response, 200, helperMoves(challenge, target))
+        return true
+      }
+      if (request.method !== 'POST' || helperMatch[3] !== 'analysis') throw new RequestError(405, 'Method not allowed.')
+      storeAnalysis(challenge, target, await readJson(request, maxAnalysisBytes))
+      publish(challenge.id)
+      sendJson(response, 200, snapshot(getChallenge(challenge.id)!, user.id))
       return true
     }
 
