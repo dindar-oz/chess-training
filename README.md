@@ -56,13 +56,25 @@ Create an account or log in from the app. Passwords are hashed server-side with 
 
 Before choosing a side, pick a time control: Untimed (default), a preset such as 10+0 or 15+10, or a custom base (1-180 minutes) plus increment (0-60 seconds). Only your clock runs; the historical opponent's moves are instant, the clock pauses while a deviation is corrected, and each of your moves adds the increment. If your flag falls, the session ends and the moves you played are analyzed. A timed-out session earns XP for matched moves only, without the completion or perfect-game bonus.
 
+## Challenges
+
+Open **Challenges**, choose a side (White, Black or Random), a time control and the engine review depth, tick online players to invite, and send. Invitees get a pop-up on any screen and can accept or decline; the creator starts once at least one player has accepted (invitations still open at that moment expire).
+
+At the start the server picks a random game from the library (preferring games of 20+ plies). Everyone plays the same side with the same clock after a 3-second countdown. To keep it fair:
+
+- The game's identity and moves are never sent to players while it is running; each player only receives the position they must move in. The game is revealed on the results screen.
+- The server keeps every clock: it charges thinking time, adds the increment, pauses 1.1 s after a deviation while the line is restored, and flags players whose time runs out (also after a server restart; clocks keep running while the server is down).
+- Players see each other's progress and clocks, never their moves.
+
+When everyone has finished, timed out or resigned, the **creator's browser** runs Stockfish on every position (each position is searched once, plus once per distinct move tried) and submits the results; the creator should keep the tab open, and a reload resumes the analysis. The server computes accuracies, ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP. If the analysis never arrives within 24 hours, the challenge is voided with no rating change. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
+
 ## ELO rating
 
 Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. In a challenge, every pair of participants counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.
 
 ## Live updates
 
-Each logged-in tab keeps a Server-Sent Events stream open at `GET /api/events` (at most 5 per user). It drives the online count in the header and the online dots on the leaderboard, and will carry challenge invitations. A user is online while at least one tab is connected. The server sends a heartbeat every 25 seconds, which also closes streams whose session expired or was revoked; logging out, disabling or deleting a user closes their streams immediately. Presence lives in server memory, so run a single server instance. Behind a reverse proxy, disable response buffering for `/api/events` (the server already sends `X-Accel-Buffering: no` for nginx).
+Each logged-in tab keeps a Server-Sent Events stream open at `GET /api/events` (at most 5 per user). It drives the online count in the header and the online dots on the leaderboard, and carries challenge invitations, lobby updates and clocks. A user is online while at least one tab is connected. The server sends a heartbeat every 25 seconds, which also closes streams whose session expired or was revoked; logging out, disabling or deleting a user closes their streams immediately. Presence lives in server memory, so run a single server instance. Behind a reverse proxy, disable response buffering for `/api/events` (the server already sends `X-Accel-Buffering: no` for nginx).
 
 ## Administrators
 

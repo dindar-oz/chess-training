@@ -7,6 +7,9 @@ import { LibraryView } from './views/LibraryView'
 import { StatsView } from './views/StatsView'
 import { TrainingView } from './views/TrainingView'
 import { RealtimeProvider } from './realtime/RealtimeProvider'
+import { ChallengeProvider } from './challenges/ChallengeProvider'
+import { InvitationToasts } from './challenges/InvitationToasts'
+import { ChallengesView } from './views/ChallengesView'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
 import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat } from './types'
@@ -129,6 +132,20 @@ function App() {
     setGames((previous) => previous.filter((game) => game.id !== gameId))
   }
 
+  // A finished challenge changed ELO, XP and stats on the server. Replacing the user
+  // object also re-runs the stats effect above.
+  function refreshAccount() {
+    void fetch('/api/auth/me')
+      .then((response) => response.ok ? response.json() as Promise<{ user: AuthUser | null }> : null)
+      .then((result) => { if (result?.user) setAuthUser(result.user) })
+      .catch(() => undefined)
+  }
+
+  function trainChallengeGame(gameId: string) {
+    if (games.some((game) => game.id === gameId)) openTraining(gameId)
+    else window.alert('That game has since been removed from the library.')
+  }
+
   function openTraining(gameId: string) {
     setSelectedGameId(gameId)
     setTrainingKey((key) => key + 1)
@@ -142,6 +159,7 @@ function App() {
   if (view === 'stats') page = <StatsView {...viewProps} sessionStats={sessionStats} />
   else if (view === 'awards') page = <AwardsView {...viewProps} sessionStats={sessionStats} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
+  else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
   else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onGamesImported={addImportedGames} />
   else if (view !== 'training') {
     page = <LibraryView
@@ -162,8 +180,11 @@ function App() {
   // The training view stays mounted while hidden so a running clock or engine
   // review continues (and its result is saved) while the user browses other tabs.
   return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
-    {page}
-    {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
+    <ChallengeProvider userId={authUser.id} onChallengeStarted={() => setView('challenges')} onChallengeCompleted={refreshAccount}>
+      {page}
+      {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
+      <InvitationToasts onAccepted={() => setView('challenges')} />
+    </ChallengeProvider>
   </RealtimeProvider>
 }
 

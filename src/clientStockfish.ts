@@ -1,8 +1,7 @@
-export type EngineScore = {
-  cp: number | null
-  mate: number | null
-}
+import { scoreValue } from '../shared/accuracy.ts'
+import type { EngineScore } from '../shared/accuracy.ts'
 
+export type { EngineScore }
 export type EnginePhase = 'best' | 'original' | 'attempted'
 
 const ENGINE_URL = '/engine/stockfish-18-lite-single.js'
@@ -16,11 +15,6 @@ function parseScore(line: string): EngineScore | null {
     : { cp: null, mate: Number(match[2]) }
 }
 
-function scoreValue(score: EngineScore) {
-  if (score.mate !== null) return score.mate > 0 ? 100_000 : -100_000
-  return score.cp ?? 0
-}
-
 // One Worker for the page's whole lifetime, created lazily on first use.
 // React StrictMode mounts components twice in development and tears the first
 // one down; if the engine were created per component instance, that teardown
@@ -29,6 +23,9 @@ function scoreValue(score: EngineScore) {
 // entirely, matching how the Node backend already keeps one persistent engine.
 let sharedWorker: Worker | null = null
 let sharedReady: Promise<void> | null = null
+// The queue is shared too: the worker can run only one search at a time, and solo
+// reviews and challenge analysis may use separate engine instances concurrently.
+let sharedQueue: Promise<unknown> = Promise.resolve()
 
 function getSharedEngine() {
   if (!sharedWorker) {
@@ -54,7 +51,6 @@ function getSharedEngine() {
 export class ClientStockfishEngine {
   private worker: Worker
   private ready: Promise<void>
-  private requestQueue: Promise<unknown> = Promise.resolve()
 
   constructor() {
     const shared = getSharedEngine()
@@ -89,8 +85,8 @@ export class ClientStockfishEngine {
   }
 
   analyze(fen: string, depth: number, moveUci?: string) {
-    const task = this.requestQueue.then(() => this.analyzeSingle(fen, depth, moveUci))
-    this.requestQueue = task.catch(() => undefined)
+    const task = sharedQueue.then(() => this.analyzeSingle(fen, depth, moveUci))
+    sharedQueue = task.catch(() => undefined)
     return task
   }
 

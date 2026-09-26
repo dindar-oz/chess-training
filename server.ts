@@ -7,6 +7,8 @@ import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
 import { disconnectSession, disconnectUser, openEventStream, startHeartbeat } from './server/realtime.ts'
+import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
+import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
 
 type Engine = {
   listener?: (line: string) => void
@@ -26,7 +28,6 @@ type EngineScore = {
 
 const port = Number(process.env.PORT ?? 8787)
 const maxDepth = 30
-const maxJsonBytes = 64 * 1024
 const maxPgnBytes = 1 * 1024 * 1024
 const maxGamesPerImport = 100
 const maxLibrarySize = 10_000
@@ -148,19 +149,9 @@ for (const username of adminUsernames) {
 const enginePromise = initStockfish('lite-single') as Promise<Engine>
 let requestQueue: Promise<unknown> = Promise.resolve()
 let pendingAnalyses = 0
-const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
 type Role = 'user' | 'admin'
 type User = { id: string; username: string; xp: number; elo: number; role: Role }
-
-class RequestError extends Error {
-  status: number
-
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
@@ -233,29 +224,6 @@ function clientAddress(request: import('node:http').IncomingMessage) {
   const forwarded = request.headers['x-forwarded-for']
   if (typeof forwarded === 'string') return forwarded.split(',', 1)[0].trim()
   return request.socket.remoteAddress ?? 'unknown'
-}
-
-function allowRequest(key: string, limit: number, windowMs: number) {
-  const now = Date.now()
-  const current = rateLimits.get(key)
-  if (!current || current.resetAt <= now) {
-    rateLimits.set(key, { count: 1, resetAt: now + windowMs })
-    return true
-  }
-  if (current.count >= limit) return false
-  current.count += 1
-  return true
-}
-
-async function readJson(request: import('node:http').IncomingMessage, maxBytes = maxJsonBytes) {
-  let rawBody = ''
-  let byteCount = 0
-  for await (const chunk of request) {
-    byteCount += Buffer.byteLength(chunk)
-    if (byteCount > maxBytes) throw new RequestError(413, 'Request body is too large.')
-    rawBody += chunk
-  }
-  return JSON.parse(rawBody) as Record<string, unknown>
 }
 
 function pgnHeader(pgn: string, name: string, fallback: string) {
@@ -380,14 +348,6 @@ function validAnalysisRequest(body: AnalyzeRequest): body is AnalyzeRequest & { 
   } catch {
     return false
   }
-}
-
-function sendJson(response: import('node:http').ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*',
-  })
-  response.end(JSON.stringify(body))
 }
 
 const contentTypes: Record<string, string> = {
@@ -618,9 +578,11 @@ const server = createServer(async (request, response) => {
 
       if (request.method === 'DELETE') {
         // Sessions, training history and XP events cascade via foreign keys.
+        handleUserRemoved(target.id)
         database.prepare('DELETE FROM users WHERE id = ?').run(target.id)
         disconnectUser(target.id)
       } else if (action === 'disable') {
+        handleUserRemoved(target.id)
         database.prepare('UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL').run(new Date().toISOString(), target.id)
         database.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id)
         disconnectUser(target.id)
@@ -680,6 +642,11 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (request.url?.startsWith('/api/challenges')) {
+    await handleChallengeRequest(request, response, currentUser(request))
+    return
+  }
+
   if (request.url?.startsWith('/api/')) {
     sendJson(response, 404, { error: 'Not found.' })
     return
@@ -693,6 +660,7 @@ const server = createServer(async (request, response) => {
   }
 })
 
+initChallenges({ database, awardXp })
 startHeartbeat((tokenHash) => userForTokenHash(tokenHash) !== null)
 
 server.listen(port, '0.0.0.0', () => {

@@ -85,6 +85,14 @@ export function openEventStream(request: IncomingMessage, response: ServerRespon
   return true
 }
 
+// Keeps presence details (such as ELO after a challenge) current for everyone.
+export function updateOnlineUser(userId: string, changes: Partial<Omit<OnlineUser, 'id'>>) {
+  const userConnections = connections.get(userId)
+  if (!userConnections) return
+  for (const connection of userConnections) connection.user = { ...connection.user, ...changes }
+  broadcastPresence()
+}
+
 function closeWhere(matches: (connection: Connection) => boolean) {
   for (const userConnections of [...connections.values()]) {
     for (const connection of [...userConnections]) {

@@ -1,5 +1,5 @@
 export type Side = 'w' | 'b'
-export type AppView = 'library' | 'training' | 'stats' | 'awards' | 'leaderboard' | 'admin'
+export type AppView = 'library' | 'training' | 'challenges' | 'stats' | 'awards' | 'leaderboard' | 'admin'
 export type Role = 'user' | 'admin'
 export type AuthUser = { id: string; username: string; xp: number; elo: number; role: Role }
 export type GameFilter = 'all' | 'decisive' | 'draw'
@@ -29,7 +29,7 @@ export type SessionStat = {
   averageCpl: number | null
   // "10+5" style, or null for untimed sessions.
   timeControl: string | null
-  endReason: 'completed' | 'timeout'
+  endReason: 'completed' | 'timeout' | 'resigned'
   completedAt: string
 }
 
