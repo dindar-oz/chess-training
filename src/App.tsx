@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent, FormEvent } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { accuracyFromCpl } from './stockfish'
@@ -7,46 +6,18 @@ import { accuracyFromCpl } from './stockfish'
 // to restore server-side analysis via /api/analyze (untouched in server.ts).
 import { ClientStockfishEngine as StockfishEngine } from './clientStockfish'
 import type { EnginePhase } from './clientStockfish'
-import firstGameBadge from './assets/badge-first-game.svg'
+import { MainNav } from './components/MainNav'
+import { AdminView } from './views/AdminView'
+import { AuthView } from './views/AuthView'
+import { AwardsView } from './views/AwardsView'
+import { LeaderboardView } from './views/LeaderboardView'
+import { LibraryView } from './views/LibraryView'
+import { StatsView } from './views/StatsView'
+import { readApiResponse } from './types'
+import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat, Side } from './types'
 import './App.css'
 
-type Side = 'w' | 'b'
 type SessionStatus = 'selecting' | 'playing' | 'correction' | 'complete'
-type AppView = 'library' | 'training' | 'stats' | 'awards' | 'leaderboard'
-type ImportStatus = 'idle' | 'uploading' | 'processing' | 'complete' | 'error'
-type AuthUser = { id: string; username: string; xp: number }
-
-type GameRecord = {
-  id: string
-  title: string
-  white: string
-  black: string
-  event: string
-  date: string
-  result: string
-  pgn: string
-  plyCount: number
-}
-
-type SessionStat = {
-  id: string
-  gameId: string
-  gameTitle: string
-  side: Side
-  attemptedMoves: number
-  correctMoves: number
-  deviations: number
-  learnerAccuracy: number | null
-  originalAccuracy: number | null
-  averageCpl: number | null
-  completedAt: string
-}
-
-type LeaderboardEntry = {
-  username: string
-  xp: number
-  averageAccuracy: number | null
-}
 
 type MoveRecord = {
   moveNumber: number
@@ -89,9 +60,6 @@ const sampleGame: GameRecord = {
   plyCount: 47,
 }
 
-const maxTextImportBytes = 20 * 1024 * 1024
-const maxPgnImportBytes = 1 * 1024 * 1024
-
 function readStored<T>(key: string, fallback: T): T {
   try {
     const value = localStorage.getItem(key)
@@ -118,25 +86,12 @@ function App() {
   const [view, setView] = useState<AppView>('library')
   const [games, setGames] = useState<GameRecord[]>(() => readStored('chess-training-games', [sampleGame]))
   const [sessionStats, setSessionStats] = useState<SessionStat[]>([])
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
-  const [authUsername, setAuthUsername] = useState('')
-  const [authPassword, setAuthPassword] = useState('')
-  const [authMessage, setAuthMessage] = useState('')
-  const [authBusy, setAuthBusy] = useState(false)
   const [selectedGameId, setSelectedGameId] = useState(sampleGame.id)
   const [searchQuery, setSearchQuery] = useState('')
-  const [gameFilter, setGameFilter] = useState<'all' | 'decisive' | 'draw'>('all')
+  const [gameFilter, setGameFilter] = useState<GameFilter>('all')
   const [gamePage, setGamePage] = useState(1)
-  const [importText, setImportText] = useState('')
-  const [importMessage, setImportMessage] = useState('')
-  const [selectedFileName, setSelectedFileName] = useState('')
-  const [selectedFileSize, setSelectedFileSize] = useState(0)
-  const [fileLoadVersion, setFileLoadVersion] = useState(0)
-  const [importStatus, setImportStatus] = useState<ImportStatus>('idle')
-  const [importProgress, setImportProgress] = useState(0)
   const [gameLoading, setGameLoading] = useState(false)
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[0] ?? sampleGame
   const openingGame = useMemo(() => getOpeningGame(selectedGame.pgn), [selectedGame])
@@ -176,24 +131,6 @@ function App() {
   const estimatedRemainingSeconds = analysisResults.length > 0
     ? Math.ceil((analysisElapsedSeconds / analysisResults.length) * analysisRemainingMoves)
     : null
-  const filteredGames = games.filter((game) => {
-    const haystack = `${game.title} ${game.white} ${game.black} ${game.event}`.toLocaleLowerCase()
-    const matchesQuery = haystack.includes(searchQuery.toLocaleLowerCase())
-    const matchesFilter = gameFilter === 'all' || (gameFilter === 'decisive' ? game.result !== '1/2-1/2' && game.result !== '*' : game.result === '1/2-1/2')
-    return matchesQuery && matchesFilter
-  })
-  const gamesPerPage = 20
-  const totalGamePages = Math.max(1, Math.ceil(filteredGames.length / gamesPerPage))
-  const visibleGames = filteredGames.slice((gamePage - 1) * gamesPerPage, gamePage * gamesPerPage)
-  const paginationItems: Array<number | 'ellipsis'> = totalGamePages <= 7
-    ? Array.from({ length: totalGamePages }, (_, index) => index + 1)
-    : [
-      1,
-      ...(gamePage > 4 ? ['ellipsis' as const] : []),
-      ...Array.from({ length: 3 }, (_, index) => gamePage - 1 + index).filter((page) => page > 1 && page < totalGamePages),
-      ...(gamePage < totalGamePages - 3 ? ['ellipsis' as const] : []),
-      totalGamePages,
-    ]
 
   useEffect(() => () => engine.terminate(), [engine])
 
@@ -212,28 +149,12 @@ function App() {
   useEffect(() => {
     if (!authUser) {
       setSessionStats([])
-      setLeaderboard([])
       return
     }
     void fetch('/api/stats')
       .then((response) => response.ok ? response.json() as Promise<SessionStat[]> : [])
       .then((stats) => setSessionStats(stats))
   }, [authUser])
-
-  useEffect(() => {
-    if (view !== 'leaderboard') return
-    void fetch('/api/leaderboard')
-      .then((response) => response.ok ? response.json() as Promise<LeaderboardEntry[]> : [])
-      .then((entries) => setLeaderboard(entries))
-  }, [view])
-
-  useEffect(() => {
-    setGamePage(1)
-  }, [gameFilter, searchQuery])
-
-  useEffect(() => {
-    if (gamePage > totalGamePages) setGamePage(totalGamePages)
-  }, [gamePage, totalGamePages])
 
   useEffect(() => {
     void fetch('/api/games')
@@ -334,32 +255,28 @@ function App() {
     savedStatKey.current = sessionStartedAt.current
   }, [analysisStatus, correctCount, learnerAccuracy, learnerAverageCpl, originalAccuracy, records.length, selectedGame.id, selectedGame.title, side])
 
-  async function submitAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setAuthBusy(true)
-    setAuthMessage('')
-    try {
-      const response = await fetch(`/api/auth/${authMode}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: authUsername, password: authPassword }) })
-      let result: { user?: AuthUser; error?: string } = {}
-      try {
-        result = await response.json() as { user?: AuthUser; error?: string }
-      } catch {
-        // Server returned a non-JSON or empty body (e.g. cold start / outage).
-      }
-      if (!response.ok || !result.user) throw new Error(result.error ?? 'The server did not respond. Please try again in a moment.')
-      setAuthUser(result.user)
-      setAuthPassword('')
-    } catch (error) {
-      setAuthMessage(error instanceof Error ? error.message : 'Authentication failed.')
-    } finally {
-      setAuthBusy(false)
-    }
-  }
-
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' })
     setAuthUser(null)
     setSessionStats([])
+    setView('library')
+  }
+
+  function addImportedGames(importedGames: GameRecord[]) {
+    setGames((previous) => [...importedGames.map((game) => ({ ...game, pgn: '' })), ...previous])
+  }
+
+  async function deleteGame(gameId: string) {
+    const response = await fetch(`/api/games/${gameId}`, { method: 'DELETE' })
+    const result = await readApiResponse<{ ok?: boolean }>(response)
+    if (!response.ok) throw new Error(result.error ?? 'Could not delete the game.')
+    setGames((previous) => previous.filter((game) => game.id !== gameId))
+  }
+
+  function openTraining(gameId: string) {
+    setSelectedGameId(gameId)
+    setView('training')
+    setStatus('selecting')
   }
 
   function beginTraining(selectedSide: Side) {
@@ -368,94 +285,6 @@ function App() {
     setLastXpGained(null)
     setView('training')
     startSession(selectedSide)
-  }
-
-  function uploadPgn(body: XMLHttpRequestBodyInit, onProgress?: (progress: number) => void) {
-    return new Promise<{ imported?: GameRecord[]; duplicates?: number; error?: string }>((resolve, reject) => {
-      const request = new XMLHttpRequest()
-      request.open('POST', '/api/games/import')
-      request.setRequestHeader('Content-Type', 'text/plain')
-      request.upload.onprogress = (event) => {
-        if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100))
-      }
-      request.onerror = () => reject(new Error('The PGN upload failed.'))
-      request.onload = () => {
-        try {
-          const result = JSON.parse(request.responseText) as { imported?: GameRecord[]; duplicates?: number; error?: string }
-          if (request.status < 200 || request.status >= 300) reject(new Error(result.error ?? 'PGN import failed.'))
-          else resolve(result)
-        } catch {
-          reject(new Error('The server returned an invalid import response.'))
-        }
-      }
-      request.send(body)
-    })
-  }
-
-  async function importGame() {
-    if (!importText.trim()) {
-      setImportMessage('Paste a PGN before importing.')
-      return
-    }
-    try {
-      setImportStatus('processing')
-      setImportProgress(100)
-      const result = await uploadPgn(importText)
-      const importedGames = result.imported ?? []
-      setGames((previous) => [...importedGames.map((game) => ({ ...game, pgn: '' })), ...previous])
-      if (importedGames[0]) setSelectedGameId(importedGames[0].id)
-      setImportText('')
-      const duplicateMessage = result.duplicates ? ` ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'} skipped.` : ''
-      setImportMessage(`${importedGames.length} ${importedGames.length === 1 ? 'game' : 'games'} added to your library.${duplicateMessage}`)
-      setImportStatus('complete')
-    } catch (error) {
-      setImportStatus('error')
-      setImportMessage(error instanceof Error ? error.message : 'That PGN could not be parsed.')
-    }
-  }
-
-  function handlePgnFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    if (!file) return
-    setSelectedFileName(file.name)
-    setSelectedFileSize(file.size)
-    if (file.size > maxPgnImportBytes) {
-      setImportText('')
-      setImportStatus('error')
-      setImportMessage(`${file.name} is ${Math.round(file.size / 1024 / 1024)} MB. PGN imports are limited to 1 MB.`)
-      event.currentTarget.value = ''
-      return
-    }
-    if (file.size > maxTextImportBytes) {
-      setImportText('')
-      setImportStatus('uploading')
-      setImportProgress(0)
-      setImportMessage(`${file.name} is ${Math.round(file.size / 1024 / 1024)} MB. Uploading to the game database...`)
-      const input = event.currentTarget
-      void uploadPgn(file, (progress) => {
-        setImportProgress(progress)
-        if (progress === 100) setImportStatus('processing')
-      })
-        .then((result) => {
-          const importedGames = result.imported ?? []
-          setGames((previous) => [...importedGames.map((game) => ({ ...game, pgn: '' })), ...previous])
-          if (importedGames[0]) setSelectedGameId(importedGames[0].id)
-          const duplicateMessage = result.duplicates ? ` ${result.duplicates} duplicate${result.duplicates === 1 ? '' : 's'} skipped.` : ''
-          setImportMessage(`${importedGames.length} games imported directly into the database.${duplicateMessage}`)
-          setImportStatus('complete')
-        })
-        .catch((error: unknown) => { setImportStatus('error'); setImportMessage(error instanceof Error ? error.message : 'PGN import failed.') })
-        .finally(() => { input.value = '' })
-      return
-    }
-    void file.text()
-      .then((text) => {
-        setImportText(text)
-        setFileLoadVersion((version) => version + 1)
-        setImportMessage(`${file.name} loaded. Review the PGN, then import it.`)
-      })
-      .catch(() => setImportMessage(`Could not read ${file.name}.`))
-      .finally(() => { event.currentTarget.value = '' })
   }
 
   function startSession(selectedSide: Side) {
@@ -558,75 +387,28 @@ function App() {
     setLastXpGained(null)
   }
 
-  function renderAuth() {
-    return <main className="auth-screen"><div className="auth-mark" aria-hidden="true">♞</div><p className="eyebrow">REPLAY LAB / PRIVATE STUDY</p><h1>{authMode === 'login' ? 'Welcome back.' : 'Start your record.'}</h1><p className="auth-intro">Your game library is shared. Your training history belongs only to you.</p><form className="auth-form" onSubmit={submitAuth}><label>USERNAME<input autoComplete="username" value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} required minLength={3} maxLength={32} /></label><label>PASSWORD<input autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} required minLength={8} /></label><button className="primary-button auth-submit" disabled={authBusy}>{authBusy ? 'Please wait...' : authMode === 'login' ? 'Log in' : 'Create account'}</button>{authMessage && <p className="auth-message">{authMessage}</p>}</form><button className="text-button auth-switch" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthMessage('') }}>{authMode === 'login' ? 'Create a new account →' : 'Already have an account? Log in →'}</button></main>
-  }
-
-  function renderLibrary() {
-    return <main className="app-shell library-screen">
-      <header className="topbar library-topbar">
-        <div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / LIBRARY</p><h1>Study the<br /><em>great games.</em></h1></div>
-        <div className="topbar-meta"><span className="live-dot" /> {games.length} GAMES <strong>{sessionStats.length} SESSIONS</strong><strong>{authUser?.xp ?? 0} XP</strong><button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div>
-      </header>
-      <nav className="main-nav"><button className="nav-active" onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button><button onClick={() => setView('leaderboard')}><span aria-hidden="true">☰</span> Leaderboard</button></nav>
-      <section className="library-toolbar">
-        <div><p className="section-label">GAME DATABASE</p><h2>{filteredGames.length} games ready to study</h2></div>
-        <div className="library-controls"><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search players or events" aria-label="Search games" /><div className="filter-group"><button className={gameFilter === 'all' ? 'selected' : ''} onClick={() => setGameFilter('all')}>All</button><button className={gameFilter === 'decisive' ? 'selected' : ''} onClick={() => setGameFilter('decisive')}>Decisive</button><button className={gameFilter === 'draw' ? 'selected' : ''} onClick={() => setGameFilter('draw')}>Draws</button></div></div>
-      </section>
-      <div className="games-table-wrap"><table className="games-table"><thead><tr><th>Game</th><th>Event</th><th>Date</th><th>Result</th><th>Length</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{visibleGames.map((game) => <tr key={game.id}><td><strong>{game.title}</strong><span>{game.white} vs {game.black}</span></td><td>{game.event}</td><td>{game.date}</td><td><b className="result-badge">{game.result}</b></td><td>{game.plyCount} plies</td><td><button className="table-action" onClick={() => { setSelectedGameId(game.id); setView('training'); setStatus('selecting') }}><span className="button-icon" aria-hidden="true">↗</span> Train</button></td></tr>)}</tbody></table></div>
-      {filteredGames.length === 0 && <div className="empty-library">No games match this search.</div>}
-      {filteredGames.length > 0 && <nav className="pagination" aria-label="Game library pages"><button className="page-button" disabled={gamePage === 1} onClick={() => setGamePage((page) => page - 1)}>← Previous</button><div className="page-numbers">{paginationItems.map((item, index) => item === 'ellipsis' ? <span className="page-ellipsis" key={`ellipsis-${index}`}>...</span> : <button key={item} className={`page-button ${item === gamePage ? 'current' : ''}`} aria-current={item === gamePage ? 'page' : undefined} onClick={() => setGamePage(item)}>{item}</button>)}</div><button className="page-button" disabled={gamePage === totalGamePages} onClick={() => setGamePage((page) => page + 1)}>Next →</button></nav>}
-      <section className="import-panel"><div><p className="section-label">EXPAND THE LIBRARY</p><h2>Import PGN games</h2><p>Paste one or more complete PGN games, or load a PGN collection from your computer.</p></div><div className="import-form"><textarea key={fileLoadVersion} value={importText} onChange={(event) => setImportText(event.target.value)} placeholder="[Event &quot;Game one&quot;]&#10;1. e4 e5 ...&#10;&#10;[Event &quot;Game two&quot;]&#10;1. d4 d5 ..." aria-label="PGN text" /><div className="import-actions"><label className="file-button"><span className="button-icon" aria-hidden="true">↑</span> Choose PGN<input type="file" accept=".pgn,.txt,text/plain" onChange={handlePgnFile} /></label><button className="primary-button" disabled={importStatus === 'uploading' || importStatus === 'processing'} onClick={() => void importGame()}><span className="button-icon" aria-hidden="true">＋</span> Import games</button></div>{(importStatus === 'uploading' || importStatus === 'processing') && <div className="import-progress" aria-live="polite"><div className="import-progress-label"><strong>{importStatus === 'uploading' ? `Uploading ${importProgress}%` : 'Processing games into the database'}</strong><span>{importStatus === 'uploading' ? `${importProgress}%` : 'Please wait'}</span></div><div className="import-progress-track"><span style={{ width: `${importStatus === 'uploading' ? importProgress : 100}%` }} /></div></div>}{selectedFileName && <p className="selected-file">Selected: {selectedFileName} · {selectedFileSize > maxTextImportBytes ? `${Math.round(selectedFileSize / 1024 / 1024)} MB file` : `${importText.length.toLocaleString()} characters loaded`}</p>}{importMessage && <p className="import-message">{importMessage}</p>}</div></section>
-    </main>
-  }
-
-  function renderStats() {
-    const completed = sessionStats.filter((stat) => stat.learnerAccuracy !== null)
-    const averageAccuracy = completed.length ? Math.round(completed.reduce((sum, stat) => sum + (stat.learnerAccuracy ?? 0), 0) / completed.length) : 0
-    const totalMoves = completed.reduce((sum, stat) => sum + stat.attemptedMoves, 0)
-    const totalMatches = completed.reduce((sum, stat) => sum + stat.correctMoves, 0)
-    return <main className="app-shell stats-screen">
-      <header className="topbar library-topbar"><div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / PROGRESS</p><h1>Your study<br /><em>record.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
-      <nav className="main-nav"><button onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button className="nav-active" onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button><button onClick={() => setView('leaderboard')}><span aria-hidden="true">☰</span> Leaderboard</button></nav>
-      <section className="stats-summary"><div><span>TOTAL XP</span><strong>{authUser?.xp ?? 0}</strong></div><div><span>SESSIONS</span><strong>{completed.length}</strong></div><div><span>AVG ACCURACY</span><strong>{averageAccuracy}%</strong></div><div><span>MOVES ATTEMPTED</span><strong>{totalMoves}</strong></div><div><span>HISTORICAL MATCHES</span><strong>{totalMatches}</strong></div></section>
-      <section className="history-section"><div className="section-heading"><div><p className="section-label">SESSION HISTORY</p><h2>Every game is part of the record.</h2></div><button className="text-button" onClick={() => setView('library')}>Find another game →</button></div>{completed.length === 0 ? <div className="empty-library">Complete a training session to start building your statistics.</div> : <div className="history-list">{completed.map((stat) => <div className="history-row" key={stat.id}><div><strong>{stat.gameTitle}</strong><span>{new Date(stat.completedAt).toLocaleDateString()} · {stat.side === 'w' ? 'White' : 'Black'}</span></div><div><strong>{stat.learnerAccuracy}%</strong><span>YOUR ACCURACY</span></div><div><strong>{stat.originalAccuracy}%</strong><span>ORIGINAL</span></div><div><strong>{stat.deviations}</strong><span>DEVIATIONS</span></div></div>)}</div>}</section>
-    </main>
-  }
-
-  function renderAwards() {
-    const firstGameEarned = sessionStats.length > 0
-    const earnedAt = firstGameEarned
-      ? [...sessionStats].sort((a, b) => a.completedAt.localeCompare(b.completedAt))[0].completedAt
-      : null
-    return <main className="app-shell awards-screen">
-      <header className="topbar library-topbar"><div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / AWARDS</p><h1>Badges<br /><em>you've earned.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
-      <nav className="main-nav"><button onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button className="nav-active" onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button><button onClick={() => setView('leaderboard')}><span aria-hidden="true">☰</span> Leaderboard</button></nav>
-      <section className="badge-grid">
-        <div className={`badge-card ${firstGameEarned ? 'earned' : 'locked'}`}>
-          <img src={firstGameBadge} alt="1st Game Completed badge" className="badge-image" />
-          <h3>1st Game Completed</h3>
-          <p>{firstGameEarned ? 'Earned for finishing your first training session.' : 'Complete a training session to unlock this badge.'}</p>
-          {firstGameEarned && earnedAt && <span className="badge-earned-date">Earned {new Date(earnedAt).toLocaleDateString()}</span>}
-        </div>
-      </section>
-    </main>
-  }
-
-  function renderLeaderboard() {
-    return <main className="app-shell leaderboard-screen">
-      <header className="topbar library-topbar"><div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">REPLAY LAB / LEADERBOARD</p><h1>Top<br /><em>learners.</em></h1></div><div className="topbar-meta"><span className="live-dot" /> {authUser?.xp ?? 0} XP<button className="header-link" onClick={() => void logout()}>{authUser?.username} · Log out</button></div></header>
-      <nav className="main-nav"><button onClick={() => setView('library')}><span aria-hidden="true">♜</span> Game library</button><button onClick={() => setView('stats')}><span aria-hidden="true">↗</span> My statistics</button><button onClick={() => setView('awards')}><span aria-hidden="true">🏅</span> Awards</button><button className="nav-active" onClick={() => setView('leaderboard')}><span aria-hidden="true">☰</span> Leaderboard</button></nav>
-      <div className="games-table-wrap leaderboard-table-wrap"><table className="games-table"><thead><tr><th>Rank</th><th>User</th><th>XP</th><th>Avg accuracy</th></tr></thead><tbody>{leaderboard.map((entry, index) => <tr key={entry.username} className={entry.username === authUser?.username ? 'leaderboard-self' : ''}><td>{index + 1}</td><td>{entry.username}</td><td>{entry.xp}</td><td>{entry.averageAccuracy === null ? '—' : `${Math.round(entry.averageAccuracy)}%`}</td></tr>)}</tbody></table></div>
-      {leaderboard.length === 0 && <div className="empty-library">No users yet.</div>}
-    </main>
-  }
-
   if (!authChecked) return <main className="auth-screen"><p className="eyebrow">REPLAY LAB</p><h1>Loading your study space.</h1></main>
-  if (!authUser) return renderAuth()
-  if (view === 'library') return renderLibrary()
-  if (view === 'stats') return renderStats()
-  if (view === 'awards') return renderAwards()
-  if (view === 'leaderboard') return renderLeaderboard()
+  if (!authUser) return <AuthView onAuthenticated={setAuthUser} />
+  const viewProps = { user: authUser, onNavigate: setView, onLogout: () => void logout() }
+  if (view === 'stats') return <StatsView {...viewProps} sessionStats={sessionStats} />
+  if (view === 'awards') return <AwardsView {...viewProps} sessionStats={sessionStats} />
+  if (view === 'leaderboard') return <LeaderboardView {...viewProps} />
+  if (view === 'admin' && authUser.role === 'admin') return <AdminView {...viewProps} gameCount={games.length} onGamesImported={addImportedGames} />
+  if (view !== 'training') {
+    return <LibraryView
+      {...viewProps}
+      games={games}
+      sessionCount={sessionStats.length}
+      searchQuery={searchQuery}
+      gameFilter={gameFilter}
+      gamePage={gamePage}
+      onSearchChange={(query) => { setSearchQuery(query); setGamePage(1) }}
+      onFilterChange={(filter) => { setGameFilter(filter); setGamePage(1) }}
+      onPageChange={setGamePage}
+      onTrain={openTraining}
+      onDeleteGame={deleteGame}
+    />
+  }
 
   return (
     <main className="app-shell">
@@ -640,7 +422,7 @@ function App() {
           <button className="header-link" onClick={() => setView('library')}>← Library</button>
         </div>
       </header>
-      <nav className="main-nav training-nav"><button onClick={() => setView('library')}>Game library</button><button onClick={() => setView('stats')}>My statistics</button><button onClick={() => setView('awards')}>Awards</button><button onClick={() => setView('leaderboard')}>Leaderboard</button></nav>
+      <MainNav view="training" isAdmin={authUser.role === 'admin'} onNavigate={setView} className="training-nav" />
 
       <section className="game-layout">
         <div className="board-column">

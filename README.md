@@ -52,6 +52,23 @@ npm run server
 
 Create an account or log in from the app. Passwords are hashed server-side with Node `scrypt`, and the session uses an HTTP-only cookie. The game database is shared between users, but training statistics are stored per user in SQLite and are never returned to another account.
 
+## Administrators
+
+Only admins can import games into the shared library or delete them. Admins also manage users in the **Admin** tab: promote to admin or demote, disable (logs the user out and blocks login), re-enable, or delete (permanently removes the account with its training history and XP).
+
+The first admin comes from the `ADMIN_USERNAMES` environment variable (comma-separated, case-insensitive). Listed users are promoted when the server starts, so:
+
+1. Register the account in the app first.
+2. Restart the server with the variable set. No administrator rights are needed; it only applies to that terminal session:
+
+   ```powershell
+   $env:ADMIN_USERNAMES="yourname"; npm run server
+   ```
+
+   With Docker: `docker run -e ADMIN_USERNAMES=yourname ...`
+
+Registering first matters: promotion by name would otherwise hand admin rights to whoever registers that name. Admins listed in `ADMIN_USERNAMES` show as locked in the panel and can't be demoted, disabled or deleted there. Admins also can't change their own account, so at least one admin always remains.
+
 ## Engine review
 
 After the game, the app runs Stockfish in a Web Worker. The depth slider controls the same search depth for the engine's best move, the original move, and the learner's move. Higher depth is slower but generally more stable.
