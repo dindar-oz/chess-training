@@ -13,3 +13,4 @@ export const defaultDepth = 16
 export const analysisDeadlineMs = 24 * 60 * 60 * 1000
 // Prefer games long enough to be a real test; shorter ones are used only if nothing else exists.
 export const preferredMinPlies = 20
+export const maxChatLength = 500

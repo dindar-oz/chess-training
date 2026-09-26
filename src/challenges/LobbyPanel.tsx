@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { formatTimeControl } from '../timeControl'
+import { ChallengeChat } from './ChallengeChat'
 import { useChallenges } from './context'
 import { sideLabel } from './types'
 import type { ChallengeSnapshot, InviteStatus } from './types'
@@ -52,5 +53,6 @@ export function LobbyPanel({ challenge, userId }: { challenge: ChallengeSnapshot
         <button className="text-button" disabled={busy} onClick={() => void run(leave)}>Leave challenge</button>
       </>}
     </div>
+    <ChallengeChat userId={userId} />
   </section>
 }

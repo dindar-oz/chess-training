@@ -4,6 +4,7 @@ import { Chessboard } from 'react-chessboard'
 import { correctionDelayMs } from '../../shared/challengeRules.ts'
 import { ChessClock } from '../components/ChessClock'
 import { formatClock } from '../timeControl'
+import { ChallengeChat } from './ChallengeChat'
 import { useChallenges } from './context'
 import { liveRemainingMs } from './types'
 import type { PlayStatus, ReceivedSnapshot } from './types'
@@ -125,6 +126,8 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
           <b className={player.clock.running && started ? 'running' : ''}>{remaining === null ? '--:--' : formatClock(remaining)}</b>
         </div>
       })}</div>
+
+      <ChallengeChat userId={userId} />
 
       <div className="move-log"><p className="section-label">YOUR MOVES</p>{!me || me.moves.length === 0 ? <p className="empty-log">Your moves will appear here.</p> : me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>
       {iAmPlaying && started && <button className="text-button resign-button" onClick={() => void confirmResign()}>Resign</button>}
