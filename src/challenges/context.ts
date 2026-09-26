@@ -8,6 +8,8 @@ export type ChallengeState = {
   invitations: ChallengeSnapshot[]
   // Progress of this browser's analysis of your own moves once you've finished.
   analysisRun: AnalysisRun | null
+  // This browser analyzing for other players whose analysis is missing, by player id.
+  helperRuns: Record<string, { done: number; total: number }>
   notice: string | null
   // Chat of the current challenge, oldest first. Kept only in memory: messages
   // are relayed live and never stored, so a reload starts with an empty chat.

@@ -9,6 +9,13 @@ export type OnlineUser = { id: string; username: string; elo: number }
 type Connection = { response: ServerResponse; tokenHash: string; user: OnlineUser }
 
 export const maxConnectionsPerUser = 5
+// Sent first on every stream, so a page loaded from an older build notices after
+// a deploy (the restart makes every page reconnect).
+let helloPayload: { build: string | null } = { build: null }
+
+export function setAppBuild(build: string | null) {
+  helloPayload = { build }
+}
 const heartbeatMs = 25_000
 const connections = new Map<string, Set<Connection>>()
 
@@ -79,6 +86,7 @@ export function openEventStream(request: IncomingMessage, response: ServerRespon
   connections.set(user.id, userConnections)
   // Tell the browser to wait 3s before its own automatic reconnect attempts.
   response.write('retry: 3000\n\n')
+  write(connection, frame('hello', helloPayload))
   if (firstConnection) broadcastPresence()
   else write(connection, frame('presence', { users: onlineUsers() }))
   request.on('close', () => removeConnection(connection))

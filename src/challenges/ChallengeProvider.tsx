@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { scoreValue } from '../../shared/accuracy.ts'
+import { analysisGraceMs, helperDelayMs } from '../../shared/challengeRules.ts'
 import { ClientStockfishEngine } from '../clientStockfish'
 import { play } from '../sounds'
 import { useRealtime, useRealtimeEvent } from '../realtime/context'
@@ -8,6 +9,7 @@ import { readApiResponse } from '../types'
 import { ChallengeContext } from './context'
 import type { AnalysisRun, ChallengeState } from './context'
 import { isParticipant } from './types'
+import { useNow } from './useNow'
 import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 const activeStatuses = ['lobby', 'playing', 'analyzing']
@@ -32,6 +34,10 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   const [invitations, setInvitations] = useState<ChallengeSnapshot[]>([])
   const [analysisRun, setAnalysisRun] = useState<AnalysisRun | null>(null)
   const [analysisAttempt, setAnalysisAttempt] = useState(0)
+  const [helperRuns, setHelperRuns] = useState<Record<string, { done: number; total: number }>>({})
+  const helperAttempts = useRef(new Map<string, number>())
+  const helpersInFlight = useRef(new Set<string>())
+  const helperRunsRef = useRef<Record<string, { done: number; total: number }>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [chat, setChat] = useState<ChatMessage[]>([])
   const [mutedChats, setMutedChats] = useState<string[]>([])
@@ -42,7 +48,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   const analysisKey = useRef<string | null>(null)
   const callbacks = useRef({ onChallengeStarted, onChallengeCompleted })
   const engine = useMemo(() => new ClientStockfishEngine(), [])
-  const { connected } = useRealtime()
+  const { connected, onlineUsers } = useRealtime()
 
   useEffect(() => { callbacks.current = { onChallengeStarted, onChallengeCompleted } })
 
@@ -165,6 +171,58 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
     void run()
   }, [analysisAttempt, apply, challengeIdForAnalysis, depth, engine, mustSubmit])
 
+  // Analyze for other players who finished on time but whose analysis is missing
+  // (offline, or silent for a minute). Several browsers may help; the server
+  // keeps the first complete analysis.
+  const analyzingNow = useNow(snapshot?.status === 'analyzing', 5000)
+  const waitedMs = snapshot?.status === 'analyzing' && snapshot.analysisGraceInMs !== null && current
+    ? analysisGraceMs - snapshot.analysisGraceInMs + Math.max(0, analyzingNow - current.receivedAt)
+    : 0
+  const onlineIds = useMemo(() => new Set(onlineUsers.map((onlineUser) => onlineUser.id)), [onlineUsers])
+  const helpTargets = snapshot?.status === 'analyzing' && snapshot.me && isParticipant(snapshot)
+    ? snapshot.players.filter((player) => player.userId !== userId && !player.analysisReady && player.playStatus === 'finished'
+      && (player.userId === null || !onlineIds.has(player.userId) || waitedMs > helperDelayMs)).map((player) => player.playerId)
+    : []
+  const helpTargetKey = helpTargets.join(',')
+  useEffect(() => {
+    if (!challengeIdForAnalysis || !helpTargetKey) return
+    const challengeId = challengeIdForAnalysis
+    for (const playerId of helpTargetKey.split(',')) {
+      const key = `${challengeId}:${playerId}`
+      const attempts = helperAttempts.current.get(key) ?? 0
+      if (attempts >= 3 || helpersInFlight.current.has(key)) continue
+      helperAttempts.current.set(key, attempts + 1)
+      helpersInFlight.current.add(key)
+      void (async () => {
+        try {
+          const input = await request<{ depth: number; analysisReady: boolean; moves: Array<{ ply: number; fen: string; expectedUci: string; attemptedUci: string }> }>(`/api/challenges/${challengeId}/players/${playerId}/moves`)
+          if (input.analysisReady) return
+          const update = (done: number) => {
+            helperRunsRef.current = { ...helperRunsRef.current, [playerId]: { done, total: input.moves.length } }
+            setHelperRuns(helperRunsRef.current)
+          }
+          update(0)
+          const results: Array<{ ply: number; cpl: number; originalCpl: number }> = []
+          for (const move of input.moves) {
+            const best = scoreValue(await engine.analyze(move.fen, input.depth))
+            const original = scoreValue(await engine.analyze(move.fen, input.depth, move.expectedUci))
+            const attempted = scoreValue(await engine.analyze(move.fen, input.depth, move.attemptedUci))
+            results.push({ ply: move.ply, cpl: Math.max(0, best - attempted), originalCpl: Math.max(0, best - original) })
+            update(results.length)
+          }
+          apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId}/players/${playerId}/analysis`, { results }))
+        } catch {
+          // Retried on the next check (up to three attempts) unless the challenge moved on.
+        } finally {
+          helpersInFlight.current.delete(key)
+          const { [playerId]: _finished, ...rest } = helperRunsRef.current
+          helperRunsRef.current = rest
+          setHelperRuns(rest)
+        }
+      })()
+    }
+  }, [apply, challengeIdForAnalysis, engine, helpTargetKey])
+
   const value = useMemo<ChallengeState>(() => {
     const challengeId = () => {
       const id = currentRef.current?.snapshot.id
@@ -175,6 +233,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       current,
       invitations,
       analysisRun,
+      helperRuns,
       notice,
       chat: current ? chat.filter((message) => message.challengeId === current.snapshot.id) : [],
       chatMutedForMe: current ? mutedChats.includes(current.snapshot.id) : false,
@@ -207,7 +266,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
         setCurrent(null)
       },
     }
-  }, [addChatMessage, analysisRun, apply, chat, current, invitations, mutedChats, notice])
+  }, [addChatMessage, analysisRun, apply, chat, current, helperRuns, invitations, mutedChats, notice])
 
   return <ChallengeContext.Provider value={value}>{children}</ChallengeContext.Provider>
 }

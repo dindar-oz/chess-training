@@ -36,7 +36,7 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
   if (snapshot?.status === 'playing' && current) body = <ChallengePlay received={current} userId={user.id} />
   else if (snapshot?.status === 'lobby') body = <LobbyPanel challenge={snapshot} userId={user.id} />
   else if (snapshot && (snapshot.status === 'analyzing' || snapshot.status === 'complete' || snapshot.status === 'void')) {
-    body = <ChallengeResults challenge={snapshot} userId={user.id} analysisRun={analysisRun?.challengeId === snapshot.id ? analysisRun : null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onClose={dismiss} closeLabel="New challenge" showChat />
+    body = <ChallengeResults challenge={snapshot} userId={user.id} analysisRun={analysisRun?.challengeId === snapshot.id ? analysisRun : null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onClose={dismiss} closeLabel="New challenge" showChat receivedAt={current?.receivedAt} />
   } else if (viewing) {
     body = <ChallengeResults challenge={viewing} userId={user.id} analysisRun={null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onClose={() => setViewing(null)} closeLabel="← Back to challenges" showChat={false} />
   } else {

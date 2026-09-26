@@ -17,6 +17,7 @@ type RealtimeProviderProps = {
 export function RealtimeProvider({ children, onSessionEnded }: RealtimeProviderProps) {
   const [connected, setConnected] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([])
+  const [updateAvailable, setUpdateAvailable] = useState(false)
   const handlers = useRef(new Map<string, Set<RealtimeHandler>>())
   const onSessionEndedRef = useRef(onSessionEnded)
 
@@ -48,6 +49,10 @@ export function RealtimeProvider({ children, onSessionEnded }: RealtimeProviderP
           return
         }
         if (message.type === 'presence') setOnlineUsers((message.data as { users: OnlineUser[] }).users)
+        if (message.type === 'hello') {
+          const { build } = message.data as { build: string | null }
+          if (build && build !== __APP_BUILD__) setUpdateAvailable(true)
+        }
         handlers.current.get(message.type)?.forEach((handler) => handler(message.data))
       }
       source.onerror = () => {
@@ -80,6 +85,6 @@ export function RealtimeProvider({ children, onSessionEnded }: RealtimeProviderP
     return () => { typeHandlers.delete(handler) }
   }, [])
 
-  const value = useMemo(() => ({ connected, onlineUsers, subscribe }), [connected, onlineUsers, subscribe])
+  const value = useMemo(() => ({ connected, updateAvailable, onlineUsers, subscribe }), [connected, updateAvailable, onlineUsers, subscribe])
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>
 }

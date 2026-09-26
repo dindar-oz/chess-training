@@ -12,6 +12,7 @@ import { InvitationToasts } from './challenges/InvitationToasts'
 import { ChallengesView } from './views/ChallengesView'
 import { ResetPasswordView } from './views/ResetPasswordView'
 import { AdminNotices } from './components/AdminNotices'
+import { UpdateBanner } from './components/UpdateBanner'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
 import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat } from './types'
@@ -187,6 +188,7 @@ function App() {
     <ChallengeProvider userId={authUser.id} onChallengeStarted={() => setView('challenges')} onChallengeCompleted={refreshAccount}>
       {page}
       {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
+      <UpdateBanner view={view} trainingOpened={trainingKey > 0} />
       <InvitationToasts onAccepted={() => setView('challenges')} />
       {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
     </ChallengeProvider>

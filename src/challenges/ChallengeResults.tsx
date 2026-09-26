@@ -1,7 +1,10 @@
-import { formatTimeControl } from '../timeControl'
+import { useRealtime } from '../realtime/context'
+import { useChallenges } from './context'
+import { formatClock, formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
 import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
+import { useNow } from './useNow'
 
 const playStatusLabels: Record<PlayStatus, string> = {
   playing: 'Playing',
@@ -18,14 +21,20 @@ type ChallengeResultsProps = {
   onTrainGame: (gameId: string) => void
   onClose: () => void
   closeLabel: string
+  // When the snapshot arrived (performance.now()), so the grace countdown can tick.
+  receivedAt?: number
   // Only the current challenge has a live chat; past ones are shown without it.
   showChat: boolean
 }
 
-export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel, showChat }: ChallengeResultsProps) {
+export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel, showChat, receivedAt }: ChallengeResultsProps) {
+  const { onlineUsers } = useRealtime()
+  const { helperRuns } = useChallenges()
+  const onlineIds = new Set(onlineUsers.map((onlineUser) => onlineUser.id))
+  const now = useNow(challenge.status === 'analyzing', 1000)
+  const graceLeftMs = challenge.analysisGraceInMs === null ? null : Math.max(0, challenge.analysisGraceInMs - (receivedAt === undefined ? 0 : Math.max(0, now - receivedAt)))
   const ranked = [...challenge.players].sort((a, b) => (a.result?.rank ?? 99) - (b.result?.rank ?? 99))
   const game = challenge.game
-  const graceMinutes = challenge.analysisGraceInMs === null ? null : Math.max(1, Math.ceil(challenge.analysisGraceInMs / 60_000))
 
   return <section className="history-section challenge-results">
     {challenge.status === 'analyzing' && <>
@@ -36,11 +45,22 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
         <div className="analysis-progress-meta"><span>{analysisRun.done} of {analysisRun.total} moves</span><span>Keep this page open until it's sent</span></div>
       </div>}
       {analysisRun?.error && <div className="admin-error">Your analysis stopped: {analysisRun.error} <button className="text-button" onClick={onRetryAnalysis}>Retry</button></div>}
-      <div className="analysis-players">{challenge.players.map((player) => <div key={player.playerId} className={player.analysisReady ? 'ready' : ''}>
-        <strong>{player.userId === userId ? 'You' : player.username}</strong>
-        <span>{player.analysisReady ? 'Analysis in ✓' : 'Analyzing...'}</span>
-      </div>)}</div>
-      <p className="results-note">Each player's browser analyzes their own moves and sends them automatically. Results appear as soon as everyone's analysis is in{graceMinutes !== null && `; anyone still missing in ${graceMinutes} minute${graceMinutes === 1 ? '' : 's'} is ranked last`}.</p>
+      <div className="analysis-players">{challenge.players.map((player) => {
+        // Only a connected player's browser can still send their analysis.
+        const online = player.userId !== null && (player.userId === userId || onlineIds.has(player.userId))
+        const helping = helperRuns[player.playerId]
+        const state = player.analysisReady ? 'ready' : helping ? 'helping' : online ? 'analyzing' : 'offline'
+        const label = state === 'ready' ? 'Analysis in ✓'
+          : helping ? `${online ? 'Not responding' : 'Offline'} · you're analyzing it (${helping.done}/${helping.total})`
+          : state === 'analyzing' ? 'Analyzing...'
+          : player.playStatus === 'finished' ? 'Offline · waiting for another player to analyze it'
+          : `Offline${graceLeftMs === null ? '' : ` · ranked last in ${formatClock(graceLeftMs)}`}`
+        return <div key={player.playerId} className={state}>
+          <strong>{player.userId === userId ? 'You' : player.username}</strong>
+          <span>{label}</span>
+        </div>
+      })}</div>
+      <p className="results-note">Each player's browser analyzes their own moves and sends them automatically. Results appear as soon as everyone's analysis is in{graceLeftMs !== null && `; anyone still missing in ${formatClock(graceLeftMs)} is ranked last. If a player who finished on time has left, the other players' browsers analyze their moves for them`}.</p>
     </>}
 
     {challenge.status === 'void' && <>

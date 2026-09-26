@@ -1,12 +1,12 @@
 import { createServer } from 'node:http'
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
-import { disconnectSession, disconnectUser, openEventStream, sendToUser, startHeartbeat } from './server/realtime.ts'
+import { disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
 import { importJob, startImport } from './server/pgnImport.ts'
@@ -35,6 +35,12 @@ const matchedMoveXp = 1
 const perfectSessionXp = 5
 const dataDirectory = process.env.DATA_DIR ?? 'data'
 const publicDirectory = resolve(process.cwd(), 'dist')
+// Written by the Vite build; absent when the client is served by the dev server.
+try {
+  setAppBuild((JSON.parse(readFileSync(resolve(publicDirectory, 'version.json'), 'utf8')) as { build?: string }).build ?? null)
+} catch {
+  setAppBuild(null)
+}
 mkdirSync(dataDirectory, { recursive: true })
 const database = new DatabaseSync(resolve(dataDirectory, 'chess-training.sqlite'))
 database.exec(`
