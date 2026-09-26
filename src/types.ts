@@ -1,7 +1,7 @@
 export type Side = 'w' | 'b'
 export type AppView = 'library' | 'training' | 'stats' | 'awards' | 'leaderboard' | 'admin'
 export type Role = 'user' | 'admin'
-export type AuthUser = { id: string; username: string; xp: number; role: Role }
+export type AuthUser = { id: string; username: string; xp: number; elo: number; role: Role }
 export type GameFilter = 'all' | 'decisive' | 'draw'
 
 export type GameRecord = {
@@ -36,7 +36,20 @@ export type SessionStat = {
 export type LeaderboardEntry = {
   username: string
   xp: number
+  elo: number
+  ratedGames: number
   averageAccuracy: number | null
+}
+
+export type RatingEvent = {
+  id: string
+  challengeId: string
+  ratingBefore: number
+  ratingAfter: number
+  delta: number
+  rank: number
+  players: number
+  createdAt: string
 }
 
 export type AdminUser = {
@@ -44,6 +57,7 @@ export type AdminUser = {
   username: string
   role: Role
   xp: number
+  elo: number
   createdAt: string
   disabledAt: string | null
   sessions: number

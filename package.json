@@ -9,6 +9,7 @@
     "start": "node --experimental-strip-types server.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "node --test \"shared/**/*.test.ts\"",
     "preview": "vite preview"
   },
   "dependencies": {

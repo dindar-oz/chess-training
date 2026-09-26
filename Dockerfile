@@ -14,6 +14,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.ts ./server.ts
+COPY --from=build /app/shared ./shared
 RUN mkdir -p /data
 VOLUME ["/data"]
 EXPOSE 8787
