@@ -77,7 +77,8 @@ function App() {
       .then((stats) => setSessionStats(stats))
   }, [authUser])
 
-  useEffect(() => {
+  // Game metadata only; each PGN is fetched when the game is opened for training.
+  const loadGames = useCallback(() => {
     void fetch('/api/games')
       .then((response) => response.ok ? response.json() as Promise<Array<Omit<GameRecord, 'pgn'> & { pgn?: string }>> : [])
       .then((storedGames) => {
@@ -90,6 +91,8 @@ function App() {
       })
       .catch(() => undefined)
   }, [])
+
+  useEffect(() => { loadGames() }, [loadGames])
 
   useEffect(() => {
     if (view !== 'training' || selectedGame.pgn || gameLoading) return
@@ -119,10 +122,6 @@ function App() {
     setSessionStats([])
     setTrainingKey(0)
     setView('library')
-  }
-
-  function addImportedGames(importedGames: GameRecord[]) {
-    setGames((previous) => [...importedGames.map((game) => ({ ...game, pgn: '' })), ...previous])
   }
 
   async function deleteGame(gameId: string) {
@@ -160,7 +159,7 @@ function App() {
   else if (view === 'awards') page = <AwardsView {...viewProps} sessionStats={sessionStats} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
   else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
-  else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onGamesImported={addImportedGames} />
+  else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onImportFinished={loadGames} />
   else if (view !== 'training') {
     page = <LibraryView
       {...viewProps}

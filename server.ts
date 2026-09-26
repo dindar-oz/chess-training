@@ -9,6 +9,7 @@ import { initialRating } from './shared/elo.ts'
 import { disconnectSession, disconnectUser, openEventStream, startHeartbeat } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
+import { importJob, startImport } from './server/pgnImport.ts'
 
 type Engine = {
   listener?: (line: string) => void
@@ -28,9 +29,6 @@ type EngineScore = {
 
 const port = Number(process.env.PORT ?? 8787)
 const maxDepth = 30
-const maxPgnBytes = 1 * 1024 * 1024
-const maxGamesPerImport = 100
-const maxLibrarySize = 10_000
 const maxPendingAnalyses = 4
 const completionXp = 10
 const matchedMoveXp = 1
@@ -226,75 +224,8 @@ function clientAddress(request: import('node:http').IncomingMessage) {
   return request.socket.remoteAddress ?? 'unknown'
 }
 
-function pgnHeader(pgn: string, name: string, fallback: string) {
-  return pgn.match(new RegExp(`^\\[${name} "([^"]*)"\\]`, 'm'))?.[1] ?? fallback
-}
-
-function savePgn(pgn: string) {
-  const chess = new Chess()
-  chess.loadPgn(pgn)
-  const white = pgnHeader(pgn, 'White', 'Unknown White')
-  const black = pgnHeader(pgn, 'Black', 'Unknown Black')
-  const event = pgnHeader(pgn, 'Event', 'Imported game')
-  const date = pgnHeader(pgn, 'Date', 'Unknown date')
-  const result = pgnHeader(pgn, 'Result', '*')
-  const moves = chess.history({ verbose: true }).map((move) => move.lan).join(' ')
-  const fingerprint = createHash('sha256').update(`${white}|${black}|${event}|${date}|${result}|${moves}`).digest('hex')
-  const record = {
-    id: randomUUID(),
-    title: `${white} vs ${black}`,
-    white,
-    black,
-    event,
-    date,
-    result,
-    ply_count: chess.history().length,
-    pgn,
-    fingerprint,
-    imported_at: new Date().toISOString(),
-  }
-  const existing = database.prepare('SELECT id, title, white, black, event, date, result, ply_count, pgn FROM games WHERE fingerprint = ?').get(fingerprint) as Record<string, unknown> | undefined
-  if (existing) return { ...existing, duplicate: true }
-  const { count } = database.prepare('SELECT COUNT(*) AS count FROM games').get() as { count: number }
-  if (count >= maxLibrarySize) throw new RequestError(400, `The game library is full (max ${maxLibrarySize} games).`)
-  database.prepare('INSERT INTO games (id, title, white, black, event, date, result, ply_count, pgn, fingerprint, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(record.id, record.title, record.white, record.black, record.event, record.date, record.result, record.ply_count, record.pgn, record.fingerprint, record.imported_at)
-  return record
-}
-
 function gameMetadata(row: Record<string, unknown>) {
   return { id: row.id, title: row.title, white: row.white, black: row.black, event: row.event, date: row.date, result: row.result, plyCount: row.ply_count }
-}
-
-async function importPgnStream(request: import('node:http').IncomingMessage) {
-  const decoder = new TextDecoder()
-  let textBuffer = ''
-  let currentGame = ''
-  let byteCount = 0
-  const imported: ReturnType<typeof savePgn>[] = []
-  const flush = () => {
-    const pgn = currentGame.trim()
-    if (!pgn) return
-    if (imported.length >= maxGamesPerImport) throw new RequestError(413, `A single import can contain at most ${maxGamesPerImport} games.`)
-    imported.push(savePgn(pgn))
-    currentGame = ''
-  }
-
-  for await (const chunk of request) {
-    byteCount += Buffer.byteLength(chunk)
-    if (byteCount > maxPgnBytes) throw new RequestError(413, 'PGN uploads are limited to 1 MB.')
-    textBuffer += decoder.decode(chunk as Buffer, { stream: true })
-    const lines = textBuffer.split(/\r?\n/)
-    textBuffer = lines.pop() ?? ''
-    for (const line of lines) {
-      if (/^\[Event\s+".*"\]\s*$/.test(line) && currentGame.trim()) flush()
-      currentGame += `${line}\n`
-    }
-  }
-  textBuffer += decoder.decode()
-  if (textBuffer) currentGame += textBuffer
-  flush()
-  return imported
 }
 
 function parseScore(line: string): EngineScore | null {
@@ -608,12 +539,19 @@ const server = createServer(async (request, response) => {
       return
     }
     try {
-      const imported = await importPgnStream(request)
-      const duplicates = imported.filter((game) => 'duplicate' in game).length
-      sendJson(response, 200, { imported: imported.filter((game) => !('duplicate' in game)).map(gameMetadata), duplicates })
+      sendJson(response, 202, await startImport(database, request, user.id))
     } catch (error) {
       sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'PGN import failed.' })
     }
+    return
+  }
+
+  const importJobMatch = request.url?.match(/^\/api\/games\/import\/([0-9a-f-]{36})$/)
+  if (request.method === 'GET' && importJobMatch) {
+    if (!requireAdmin(request, response)) return
+    const job = importJob(importJobMatch[1])
+    if (job) sendJson(response, 200, job)
+    else sendJson(response, 404, { error: 'Import not found.' })
     return
   }
 
