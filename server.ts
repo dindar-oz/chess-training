@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
+import { initialRating } from './shared/elo.ts'
 
 type Engine = {
   listener?: (line: string) => void
@@ -85,7 +86,20 @@ database.exec(`
     reason TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS xp_events_user_created_at ON xp_events (user_id, created_at DESC)
+  CREATE INDEX IF NOT EXISTS xp_events_user_created_at ON xp_events (user_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS rating_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    challenge_id TEXT NOT NULL,
+    rating_before INTEGER NOT NULL,
+    rating_after INTEGER NOT NULL,
+    delta INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    players INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (user_id, challenge_id)
+  );
+  CREATE INDEX IF NOT EXISTS rating_events_user_created_at ON rating_events (user_id, created_at DESC)
 `)
 try {
   database.exec('ALTER TABLE games ADD COLUMN fingerprint TEXT')
@@ -118,6 +132,11 @@ try {
 } catch {
   // Existing databases may already have the disabled_at column.
 }
+try {
+  database.exec(`ALTER TABLE users ADD COLUMN elo INTEGER NOT NULL DEFAULT ${initialRating}`)
+} catch {
+  // Existing databases may already have the elo column.
+}
 // Promotion happens only at startup, never at registration, so the account must be
 // registered before its name is added here; otherwise anyone could claim the name.
 const adminUsernames = new Set((process.env.ADMIN_USERNAMES ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean))
@@ -131,7 +150,7 @@ let pendingAnalyses = 0
 const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
 type Role = 'user' | 'admin'
-type User = { id: string; username: string; xp: number; role: Role }
+type User = { id: string; username: string; xp: number; elo: number; role: Role }
 
 class RequestError extends Error {
   status: number
@@ -160,7 +179,7 @@ function parseCookies(request: import('node:http').IncomingMessage) {
 function currentUser(request: import('node:http').IncomingMessage): User | null {
   const token = parseCookies(request).session
   if (!token) return null
-  const row = database.prepare('SELECT users.id, users.username, users.xp, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.disabled_at IS NULL').get(hashToken(token), new Date().toISOString()) as User | undefined
+  const row = database.prepare('SELECT users.id, users.username, users.xp, users.elo, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.disabled_at IS NULL').get(hashToken(token), new Date().toISOString()) as User | undefined
   return row ?? null
 }
 
@@ -347,9 +366,9 @@ function queuedAnalyze(fen: string, depth: number, moveUci?: string) {
   return task.finally(() => { pendingAnalyses -= 1 })
 }
 
-function validAnalysisRequest(body: AnalyzeRequest) {
+function validAnalysisRequest(body: AnalyzeRequest): body is AnalyzeRequest & { fen: string; depth: number } {
   if (typeof body.fen !== 'string' || body.fen.length > 100 || /[\r\n]/.test(body.fen)) return false
-  if (!Number.isInteger(body.depth) || body.depth < 12 || body.depth > maxDepth) return false
+  if (typeof body.depth !== 'number' || !Number.isInteger(body.depth) || body.depth < 12 || body.depth > maxDepth) return false
   if (body.moveUci !== undefined && (typeof body.moveUci !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(body.moveUci))) return false
   try {
     new Chess(body.fen)
@@ -431,15 +450,15 @@ const server = createServer(async (request, response) => {
         const id = randomUUID()
         const salt = randomBytes(16).toString('hex')
         database.prepare('INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)').run(id, username, hashPassword(password, salt), salt, new Date().toISOString())
-        user = { id, username, xp: 0, role: 'user' }
+        user = { id, username, xp: 0, elo: initialRating, role: 'user' }
       } else {
-        const record = database.prepare('SELECT id, username, password_hash, password_salt, xp, role, disabled_at FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string; disabled_at: string | null }) | undefined
+        const record = database.prepare('SELECT id, username, password_hash, password_salt, xp, elo, role, disabled_at FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string; disabled_at: string | null }) | undefined
         if (!record) throw new Error('Invalid username or password.')
         const actual = Buffer.from(hashPassword(password, record.password_salt), 'hex')
         const expected = Buffer.from(record.password_hash, 'hex')
         if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid username or password.')
         if (record.disabled_at) throw new RequestError(403, 'This account has been disabled.')
-        user = { id: record.id, username: record.username, xp: record.xp, role: record.role }
+        user = { id: record.id, username: record.username, xp: record.xp, elo: record.elo, role: record.role }
       }
 
       const token = randomBytes(32).toString('hex')
@@ -471,6 +490,17 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (request.method === 'GET' && request.url === '/api/ratings') {
+    const user = currentUser(request)
+    if (!user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    const rows = database.prepare('SELECT id, challenge_id AS challengeId, rating_before AS ratingBefore, rating_after AS ratingAfter, delta, rank, players, created_at AS createdAt FROM rating_events WHERE user_id = ? ORDER BY created_at DESC').all(user.id)
+    sendJson(response, 200, rows)
+    return
+  }
+
   if (request.method === 'GET' && request.url === '/api/leaderboard') {
     const user = currentUser(request)
     if (!user) {
@@ -478,7 +508,8 @@ const server = createServer(async (request, response) => {
       return
     }
     const rows = database.prepare(`
-      SELECT users.username AS username, users.xp AS xp,
+      SELECT users.username AS username, users.xp AS xp, users.elo AS elo,
+        (SELECT COUNT(*) FROM rating_events WHERE rating_events.user_id = users.id) AS ratedGames,
         AVG(training_sessions.learner_accuracy) AS averageAccuracy
       FROM users
       LEFT JOIN training_sessions
@@ -543,7 +574,7 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/api/admin/users') {
     if (!requireAdmin(request, response)) return
     const rows = database.prepare(`
-      SELECT users.id, users.username, users.role, users.xp, users.created_at AS createdAt, users.disabled_at AS disabledAt,
+      SELECT users.id, users.username, users.role, users.xp, users.elo, users.created_at AS createdAt, users.disabled_at AS disabledAt,
         COUNT(training_sessions.id) AS sessions, MAX(training_sessions.completed_at) AS lastTrainedAt
       FROM users
       LEFT JOIN training_sessions ON training_sessions.user_id = users.id

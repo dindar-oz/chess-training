@@ -56,6 +56,10 @@ Create an account or log in from the app. Passwords are hashed server-side with 
 
 Before choosing a side, pick a time control: Untimed (default), a preset such as 10+0 or 15+10, or a custom base (1-180 minutes) plus increment (0-60 seconds). Only your clock runs; the historical opponent's moves are instant, the clock pauses while a deviation is corrected, and each of your moves adds the increment. If your flag falls, the session ends and the moves you played are analyzed. A timed-out session earns XP for matched moves only, without the completion or perfect-game bonus.
 
+## ELO rating
+
+Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. In a challenge, every pair of participants counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.
+
 ## Administrators
 
 Only admins can import games into the shared library or delete them. Admins also manage users in the **Admin** tab: promote to admin or demote, disable (logs the user out and blocks login), re-enable, or delete (permanently removes the account with its training history and XP).

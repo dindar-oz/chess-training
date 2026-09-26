@@ -68,13 +68,14 @@ export function AdminView({ user, gameCount, onGamesImported, onNavigate, onLogo
     <section className="history-section">
       <div className="section-heading"><div><p className="section-label">USER MANAGEMENT</p><h2>Members of the club.</h2></div></div>
       {error && <p className="admin-error">{error}</p>}
-      {loading ? <div className="empty-library">Loading users...</div> : <div className="games-table-wrap"><table className="games-table admin-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>XP</th><th>Sessions</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{users.map((entry) => {
+      {loading ? <div className="empty-library">Loading users...</div> : <div className="games-table-wrap"><table className="games-table admin-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>ELO</th><th>XP</th><th>Sessions</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{users.map((entry) => {
         const isSelf = entry.id === user.id
         const busy = busyUserId === entry.id
         return <tr key={entry.id} className={entry.disabledAt ? 'admin-row-disabled' : ''}>
           <td><strong>{entry.username}</strong><span>{entry.lastTrainedAt ? `Last trained ${new Date(entry.lastTrainedAt).toLocaleDateString()}` : 'No sessions yet'}</span></td>
           <td><b className={`role-badge ${entry.role}`}>{entry.role}</b></td>
           <td>{entry.disabledAt ? <span className="status-disabled">Disabled {new Date(entry.disabledAt).toLocaleDateString()}</span> : 'Active'}</td>
+          <td>{entry.elo}</td>
           <td>{entry.xp}</td>
           <td>{entry.sessions}</td>
           <td>{new Date(entry.createdAt).toLocaleDateString()}</td>
