@@ -27,6 +27,9 @@ export type SessionStat = {
   learnerAccuracy: number | null
   originalAccuracy: number | null
   averageCpl: number | null
+  // "10+5" style, or null for untimed sessions.
+  timeControl: string | null
+  endReason: 'completed' | 'timeout'
   completedAt: string
 }
 
