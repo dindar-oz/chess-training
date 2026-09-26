@@ -99,6 +99,16 @@ try {
   // New databases already include XP; existing databases may already be migrated.
 }
 try {
+  database.exec('ALTER TABLE training_sessions ADD COLUMN time_control TEXT')
+} catch {
+  // Existing databases may already have the time_control column.
+}
+try {
+  database.exec("ALTER TABLE training_sessions ADD COLUMN end_reason TEXT NOT NULL DEFAULT 'completed'")
+} catch {
+  // Existing databases may already have the end_reason column.
+}
+try {
   database.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
 } catch {
   // Existing databases may already have the role column.
@@ -173,8 +183,9 @@ function isLockedAdmin(username: string) {
 }
 
 // Idempotent per session_id so a retried /api/stats submission cannot double-award XP.
-function awardXp(userId: string, sessionId: string, correctMoves: number, deviations: number, attemptedMoves: number) {
-  const xpGained = completionXp + correctMoves * matchedMoveXp + (attemptedMoves > 0 && deviations === 0 ? perfectSessionXp : 0)
+// A session that ran out of time earns only its matched moves, not the completion or perfect bonuses.
+function awardXp(userId: string, sessionId: string, correctMoves: number, deviations: number, attemptedMoves: number, completed: boolean) {
+  const xpGained = correctMoves * matchedMoveXp + (completed ? completionXp + (attemptedMoves > 0 && deviations === 0 ? perfectSessionXp : 0) : 0)
   const inserted = database.prepare('INSERT OR IGNORE INTO xp_events (id, user_id, session_id, amount, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(randomUUID(), userId, sessionId, xpGained, 'training_session', new Date().toISOString())
   if (inserted.changes === 0) {
@@ -455,7 +466,7 @@ const server = createServer(async (request, response) => {
       sendJson(response, 401, { error: 'Authentication required.' })
       return
     }
-    const rows = database.prepare('SELECT id, game_id AS gameId, game_title AS gameTitle, side, attempted_moves AS attemptedMoves, correct_moves AS correctMoves, deviations, learner_accuracy AS learnerAccuracy, original_accuracy AS originalAccuracy, average_cpl AS averageCpl, completed_at AS completedAt FROM training_sessions WHERE user_id = ? ORDER BY completed_at DESC').all(user.id)
+    const rows = database.prepare('SELECT id, game_id AS gameId, game_title AS gameTitle, side, attempted_moves AS attemptedMoves, correct_moves AS correctMoves, deviations, learner_accuracy AS learnerAccuracy, original_accuracy AS originalAccuracy, average_cpl AS averageCpl, time_control AS timeControl, end_reason AS endReason, completed_at AS completedAt FROM training_sessions WHERE user_id = ? ORDER BY completed_at DESC').all(user.id)
     sendJson(response, 200, rows)
     return
   }
@@ -492,8 +503,10 @@ const server = createServer(async (request, response) => {
       const correctMoves = Number(body.correctMoves) || 0
       const deviations = Number(body.deviations) || 0
       const attemptedMoves = Number(body.attemptedMoves) || 0
-      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, String(body.completedAt))
-      const { xpGained, totalXp } = awardXp(user.id, sessionId, correctMoves, deviations, attemptedMoves)
+      const timeControl = typeof body.timeControl === 'string' && /^\d{1,3}\+\d{1,2}$/.test(body.timeControl) ? body.timeControl : null
+      const endReason = body.endReason === 'timeout' ? 'timeout' : 'completed'
+      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, time_control, end_reason, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, timeControl, endReason, String(body.completedAt))
+      const { xpGained, totalXp } = awardXp(user.id, sessionId, correctMoves, deviations, attemptedMoves, endReason === 'completed')
       sendJson(response, 200, { ok: true, xpGained, totalXp })
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not save statistics.' })

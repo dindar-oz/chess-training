@@ -163,6 +163,26 @@ h1 em { color: var(--green); font-style: italic; }
 .side-choice small { color: var(--muted); font-size: 12px; grid-column: 2; }
 .side-choice b { color: var(--green); font-size: 21px; font-weight: 400; grid-column: 3; grid-row: 1 / span 2; }
 
+.time-control-picker { margin-bottom: 28px; }
+.time-control-options { flex-wrap: wrap; }
+.custom-time-control { align-items: end; display: flex; gap: 10px; margin-top: 12px; }
+.custom-time-control label { color: var(--muted); display: grid; font: 10px 'DM Mono', monospace; gap: 6px; letter-spacing: .08em; }
+.custom-time-control input { background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: 14px 'DM Mono', monospace; padding: 8px 10px; width: 96px; }
+.custom-time-control input:focus { border-color: var(--green); outline: 2px solid var(--green-soft); }
+.custom-time-control > span { color: var(--muted); font: 16px 'DM Mono', monospace; padding-bottom: 8px; }
+.chess-clock { align-items: center; border: 1px solid var(--line); display: flex; justify-content: space-between; margin-top: 28px; padding: 12px 16px; transition: background .2s, border-color .2s; }
+.chess-clock span { color: var(--muted); font: 500 10px 'DM Mono', monospace; letter-spacing: .1em; }
+.chess-clock strong { color: var(--muted); font: 500 30px/1 'DM Mono', monospace; font-variant-numeric: tabular-nums; }
+.chess-clock.running { background: var(--ink); border-color: var(--ink); }
+.chess-clock.running span { color: #b9c4c7; }
+.chess-clock.running strong { color: white; }
+.chess-clock.low strong { color: var(--amber); }
+.chess-clock.running.low { background: #3a2a1c; border-color: var(--amber); }
+.chess-clock.flagged { background: #f6e3df; border-color: var(--red); }
+.chess-clock.flagged strong { color: var(--red); }
+.history-timeout { color: var(--red); font-weight: 500; }
+.status-banner.timeout { background: #f6e3df; }
+.status-banner.timeout .status-dot { background: var(--red); }
 .status-banner { align-items: flex-start; background: var(--green-soft); display: flex; gap: 12px; margin: 28px 0 25px; padding: 15px; }
 .status-banner.correction { background: #faebd9; }
 .status-banner.complete { background: #e1eddf; }
