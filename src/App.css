@@ -339,6 +339,16 @@ h1 em { color: var(--green); font-style: italic; }
 .chat-form { display: flex; gap: 8px; margin-top: 8px; }
 .chat-form input { background: var(--panel); border: 1px solid var(--line); color: var(--ink); flex: 1; font: 13px 'DM Sans', sans-serif; min-width: 0; padding: 9px 10px; }
 .chat-form input:focus { border-color: var(--green); outline: 2px solid var(--green-soft); }
+.reset-section { margin-bottom: 40px; }
+.reset-link-box { background: var(--green-soft); margin-bottom: 18px; padding: 16px 18px; }
+.reset-link-box p { color: var(--ink); font-size: 13px; margin: 0 0 10px; }
+.reset-link-row { align-items: center; display: flex; gap: 10px; }
+.reset-link-row input { background: var(--panel); border: 1px solid var(--line); color: var(--ink); flex: 1; font: 12px 'DM Mono', monospace; min-width: 0; padding: 9px 10px; }
+.reset-request { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 16px; justify-content: space-between; padding: 14px 0; }
+.reset-request strong { color: var(--ink); display: block; font: 600 16px 'Playfair Display', serif; }
+.reset-request span { color: var(--muted); font: 10px 'DM Mono', monospace; }
+.auth-notice { color: var(--green); font-size: 13px; line-height: 1.5; margin: 0; }
+.toast-stack.admin-notices { left: 22px; right: auto; }
 .toast-stack { bottom: 22px; display: grid; gap: 12px; max-width: min(360px, calc(100vw - 32px)); position: fixed; right: 22px; z-index: 20; }
 .toast { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--green); box-shadow: 0 18px 40px rgba(18, 28, 35, .18); display: grid; gap: 6px; padding: 16px 18px; }
 .toast .section-label { color: var(--green); margin: 0; }
