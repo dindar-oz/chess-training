@@ -114,6 +114,21 @@ h1 em { color: var(--green); font-style: italic; }
 .leaderboard-self { background: var(--green-soft); }
 .leaderboard-self td:first-child, .leaderboard-self td:nth-child(2) { color: var(--ink); font-weight: 600; }
 
+.row-actions { display: flex; gap: 6px; }
+.table-action.secondary { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+.table-action.secondary:hover:not(:disabled) { background: var(--green-soft); border-color: var(--green); color: var(--green); }
+.table-action.danger { background: transparent; border: 1px solid var(--red); color: var(--red); }
+.table-action.danger:hover:not(:disabled) { background: var(--red); color: white; }
+.table-action:disabled { cursor: wait; opacity: .5; }
+.admin-error { background: #f6e3df; color: var(--red); font-size: 13px; margin: 0 0 16px; padding: 12px 14px; }
+.role-badge { font: 500 10px 'DM Mono', monospace; letter-spacing: .08em; text-transform: uppercase; }
+.role-badge.admin { color: var(--amber); }
+.role-badge.user { color: var(--muted); }
+.status-disabled { color: var(--red); }
+.admin-row-disabled td:first-child strong { color: var(--muted); text-decoration: line-through; }
+.admin-note { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
+.library-admin-hint { color: var(--muted); font-size: 13px; margin-top: 28px; }
+
 .badge-grid { border-top: 2px solid var(--ink); display: grid; gap: 28px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); padding-top: 40px; }
 .badge-card { border: 1px solid var(--line); padding: 28px 22px; text-align: center; }
 .badge-image { height: 110px; margin: 0 auto 18px; width: auto; }

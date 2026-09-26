@@ -98,12 +98,30 @@ try {
 } catch {
   // New databases already include XP; existing databases may already be migrated.
 }
+try {
+  database.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
+} catch {
+  // Existing databases may already have the role column.
+}
+try {
+  database.exec('ALTER TABLE users ADD COLUMN disabled_at TEXT')
+} catch {
+  // Existing databases may already have the disabled_at column.
+}
+// Promotion happens only at startup, never at registration, so the account must be
+// registered before its name is added here; otherwise anyone could claim the name.
+const adminUsernames = new Set((process.env.ADMIN_USERNAMES ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean))
+for (const username of adminUsernames) {
+  const promoted = database.prepare("UPDATE users SET role = 'admin' WHERE username = ?").run(username)
+  if (promoted.changes === 0) console.error(`ADMIN_USERNAMES: no registered user named "${username}".`)
+}
 const enginePromise = initStockfish('lite-single') as Promise<Engine>
 let requestQueue: Promise<unknown> = Promise.resolve()
 let pendingAnalyses = 0
 const rateLimits = new Map<string, { count: number; resetAt: number }>()
 
-type User = { id: string; username: string; xp: number }
+type Role = 'user' | 'admin'
+type User = { id: string; username: string; xp: number; role: Role }
 
 class RequestError extends Error {
   status: number
@@ -132,8 +150,26 @@ function parseCookies(request: import('node:http').IncomingMessage) {
 function currentUser(request: import('node:http').IncomingMessage): User | null {
   const token = parseCookies(request).session
   if (!token) return null
-  const row = database.prepare('SELECT users.id, users.username, users.xp FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ?').get(hashToken(token), new Date().toISOString()) as User | undefined
+  const row = database.prepare('SELECT users.id, users.username, users.xp, users.role FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.disabled_at IS NULL').get(hashToken(token), new Date().toISOString()) as User | undefined
   return row ?? null
+}
+
+// Sends the 401/403 itself, so callers only need to return when this yields null.
+function requireAdmin(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) {
+  const user = currentUser(request)
+  if (!user) {
+    sendJson(response, 401, { error: 'Authentication required.' })
+    return null
+  }
+  if (user.role !== 'admin') {
+    sendJson(response, 403, { error: 'Administrator access required.' })
+    return null
+  }
+  return user
+}
+
+function isLockedAdmin(username: string) {
+  return adminUsernames.has(username.toLowerCase())
 }
 
 // Idempotent per session_id so a retried /api/stats submission cannot double-award XP.
@@ -384,14 +420,15 @@ const server = createServer(async (request, response) => {
         const id = randomUUID()
         const salt = randomBytes(16).toString('hex')
         database.prepare('INSERT INTO users (id, username, password_hash, password_salt, created_at) VALUES (?, ?, ?, ?, ?)').run(id, username, hashPassword(password, salt), salt, new Date().toISOString())
-        user = { id, username, xp: 0 }
+        user = { id, username, xp: 0, role: 'user' }
       } else {
-        const record = database.prepare('SELECT id, username, password_hash, password_salt, xp FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string }) | undefined
+        const record = database.prepare('SELECT id, username, password_hash, password_salt, xp, role, disabled_at FROM users WHERE username = ?').get(username) as (User & { password_hash: string; password_salt: string; disabled_at: string | null }) | undefined
         if (!record) throw new Error('Invalid username or password.')
         const actual = Buffer.from(hashPassword(password, record.password_salt), 'hex')
         const expected = Buffer.from(record.password_hash, 'hex')
         if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Invalid username or password.')
-        user = { id: record.id, username: record.username, xp: record.xp }
+        if (record.disabled_at) throw new RequestError(403, 'This account has been disabled.')
+        user = { id: record.id, username: record.username, xp: record.xp, role: record.role }
       }
 
       const token = randomBytes(32).toString('hex')
@@ -435,6 +472,7 @@ const server = createServer(async (request, response) => {
       FROM users
       LEFT JOIN training_sessions
         ON training_sessions.user_id = users.id AND training_sessions.learner_accuracy IS NOT NULL
+      WHERE users.disabled_at IS NULL
       GROUP BY users.id
       ORDER BY users.xp DESC, username COLLATE NOCASE ASC
     `).all()
@@ -480,12 +518,65 @@ const server = createServer(async (request, response) => {
     return
   }
 
-  if (request.method === 'POST' && request.url === '/api/games/import') {
-    const user = currentUser(request)
-    if (!user) {
-      sendJson(response, 401, { error: 'Authentication required.' })
-      return
+  if (request.method === 'DELETE' && gameMatch) {
+    if (!requireAdmin(request, response)) return
+    // Training history keeps its own game_title copy, so past sessions stay readable.
+    const deleted = database.prepare('DELETE FROM games WHERE id = ?').run(gameMatch[1])
+    if (deleted.changes === 0) sendJson(response, 404, { error: 'Game not found.' })
+    else sendJson(response, 200, { ok: true })
+    return
+  }
+
+  if (request.method === 'GET' && request.url === '/api/admin/users') {
+    if (!requireAdmin(request, response)) return
+    const rows = database.prepare(`
+      SELECT users.id, users.username, users.role, users.xp, users.created_at AS createdAt, users.disabled_at AS disabledAt,
+        COUNT(training_sessions.id) AS sessions, MAX(training_sessions.completed_at) AS lastTrainedAt
+      FROM users
+      LEFT JOIN training_sessions ON training_sessions.user_id = users.id
+      GROUP BY users.id
+      ORDER BY users.created_at ASC
+    `).all() as Array<{ username: string }>
+    sendJson(response, 200, rows.map((row) => ({ ...row, locked: isLockedAdmin(row.username) })))
+    return
+  }
+
+  const adminUserMatch = request.url?.match(/^\/api\/admin\/users\/([^/]+)(?:\/(disable|enable|role))?$/)
+  if (adminUserMatch && (request.method === 'POST' || request.method === 'DELETE')) {
+    const admin = requireAdmin(request, response)
+    if (!admin) return
+    try {
+      const [, targetId, action] = adminUserMatch
+      if ((request.method === 'DELETE') !== (action === undefined)) throw new RequestError(405, 'Method not allowed.')
+      const target = database.prepare('SELECT id, username FROM users WHERE id = ?').get(targetId) as { id: string; username: string } | undefined
+      if (!target) throw new RequestError(404, 'User not found.')
+      // The acting admin is always active and untouchable here, so at least one admin always remains.
+      if (target.id === admin.id) throw new RequestError(400, 'You cannot change your own account.')
+      if (isLockedAdmin(target.username)) throw new RequestError(400, `${target.username} is an admin set by ADMIN_USERNAMES and cannot be changed here.`)
+
+      if (request.method === 'DELETE') {
+        // Sessions, training history and XP events cascade via foreign keys.
+        database.prepare('DELETE FROM users WHERE id = ?').run(target.id)
+      } else if (action === 'disable') {
+        database.prepare('UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL').run(new Date().toISOString(), target.id)
+        database.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id)
+      } else if (action === 'enable') {
+        database.prepare('UPDATE users SET disabled_at = NULL WHERE id = ?').run(target.id)
+      } else {
+        const body = await readJson(request)
+        if (body.role !== 'user' && body.role !== 'admin') throw new RequestError(400, 'Role must be "user" or "admin".')
+        database.prepare('UPDATE users SET role = ? WHERE id = ?').run(body.role, target.id)
+      }
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'User update failed.' })
     }
+    return
+  }
+
+  if (request.method === 'POST' && request.url === '/api/games/import') {
+    const user = requireAdmin(request, response)
+    if (!user) return
     if (!allowRequest(`import:${user.id}`, 6, 60 * 60 * 1000)) {
       sendJson(response, 429, { error: 'Too many imports. Please try again later.' })
       return
