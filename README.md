@@ -103,7 +103,7 @@ Registering first matters: promotion by name would otherwise hand admin rights t
 
 ## Sounds
 
-The app plays short sounds, synthesized in the browser (no audio files): your moves, with distinct sounds for captures, castling, promotion and check; a softer knock for the historical opponent's reply; a low tone when your move differs from the master's; session start and end; a low-time warning under 20 seconds and a flag-fall sound; the challenge countdown, start fanfare and results; invitations; a player accepting your challenge; and incoming chat messages. The **Sound on/off** switch in the header turns them off (remembered per browser).
+The app plays short sounds, synthesized in the browser (no audio files): your moves, with distinct sounds for captures, castling, promotion and check; a softer knock for the historical opponent's reply; a low tone when your move differs from the master's; session start and end; a low-time warning under 20 seconds and a flag-fall sound; the challenge countdown, start fanfare and results; invitations; a player accepting your challenge; incoming chat messages; and, for admins, password reset requests. The **Sound on/off** switch in the header turns them off (remembered per browser).
 
 ## Engine review
 

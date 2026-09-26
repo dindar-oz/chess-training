@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useRealtimeEvent } from '../realtime/context'
+import { play } from '../sounds'
 
 // Tells online admins, on any screen, that someone asked for a password reset.
 export function AdminNotices({ onOpenAdmin }: { onOpenAdmin: () => void }) {
@@ -7,6 +8,7 @@ export function AdminNotices({ onOpenAdmin }: { onOpenAdmin: () => void }) {
 
   useRealtimeEvent('password_reset_request', (data) => {
     const { username } = data as { username: string }
+    play('notify')
     setUsernames((previous) => previous.includes(username) ? previous : [...previous, username])
   })
 
