@@ -50,7 +50,7 @@ npm run server
 
 ## Home page
 
-After logging in you land on a dashboard: one large illustrated button for each section (Game Library, Challenges, My Statistics, Awards, Leaderboard, and Admin Panel for admins). The section pages keep their tab row, with a **Home** tab to get back.
+After logging in you land on a dashboard that fits a PC window without scrolling: one large illustrated button for each section (Game Library, Challenges, My Statistics, Awards, Leaderboard, and Admin Panel for admins). The section pages keep their tab row, with a **Home** tab to get back.
 
 ## Accounts and privacy
 

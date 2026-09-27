@@ -73,7 +73,27 @@ h1 em { color: var(--green); font-style: italic; }
 .dashboard-text span { color: var(--muted); font-size: 14px; line-height: 1.5; }
 .dashboard-arrow { align-items: center; border: 1px solid var(--line); border-radius: 50%; bottom: 24px; color: var(--tone); display: inline-flex; font-size: 17px; height: 36px; justify-content: center; position: absolute; right: 22px; transition: background .18s ease, color .18s ease, transform .18s ease; width: 36px; }
 .dashboard-tile:hover .dashboard-arrow { background: var(--tone); border-color: var(--tone); color: var(--panel); transform: translateX(3px); }
-@media (max-width: 1000px) { .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* On PC-sized screens the home page fits the window: a one-line title, and the
+   pictures take whatever height is left. Very short windows fall back to scrolling. */
+@media (min-width: 801px) {
+  .home-screen { display: flex; flex-direction: column; height: 100vh; height: 100dvh; padding-bottom: 26px; padding-top: 26px; }
+  .home-screen .topbar { align-items: center; padding-bottom: 20px; }
+  .home-screen .brand-lockup { margin-bottom: 14px; }
+  .home-screen .eyebrow { margin-bottom: 10px; }
+  .home-screen h1 { font-size: clamp(2.4rem, 4.4vw, 4.2rem); line-height: 1; white-space: nowrap; }
+  .home-screen .dashboard-grid { flex: 1 1 0; gap: 22px; grid-template-rows: repeat(2, minmax(190px, 1fr)); min-height: 0; padding-top: 24px; }
+  .home-screen .dashboard-tile { min-height: 0; }
+  .home-screen .dashboard-art { flex: 1 1 0; min-height: 0; padding: 14px 12px 2px; }
+  .home-screen .dashboard-art img { aspect-ratio: auto; height: 100%; max-width: 100%; object-fit: contain; width: 100%; }
+  .home-screen .dashboard-text { gap: 5px; padding: 12px 60px 18px 22px; }
+  .home-screen .dashboard-text strong { font-size: clamp(1.35rem, 2vw, 1.8rem); }
+  .home-screen .dashboard-text span { font-size: 13px; }
+  .home-screen .dashboard-arrow { bottom: 18px; }
+}
+@media (min-width: 801px) and (max-height: 820px) {
+  .home-screen .dashboard-text span { display: none; }
+}
 @media (max-width: 560px) {
   .dashboard-grid { gap: 16px; grid-template-columns: 1fr; padding-top: 28px; }
   .dashboard-art { padding-top: 14px; }
