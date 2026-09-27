@@ -3,7 +3,7 @@ import { useChallenges } from '../challenges/context'
 import { useRealtime } from '../realtime/context'
 import type { AppView } from '../types'
 
-const safeViews: AppView[] = ['library', 'stats', 'awards', 'leaderboard', 'challenges']
+const safeViews: AppView[] = ['home', 'library', 'stats', 'awards', 'leaderboard', 'challenges']
 const activeChallengeStatuses = ['lobby', 'playing', 'analyzing']
 
 type UpdateBannerProps = {

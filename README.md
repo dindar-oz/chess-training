@@ -48,6 +48,10 @@ The backend must also be running:
 npm run server
 ```
 
+## Home page
+
+After logging in you land on a dashboard: one large illustrated button for each section (Game Library, Challenges, My Statistics, Awards, Leaderboard, and Admin Panel for admins). The section pages keep their tab row, with a **Home** tab to get back.
+
 ## Accounts and privacy
 
 Create an account or log in from the app. Passwords are hashed server-side with Node `scrypt`, and the session uses an HTTP-only cookie. The game database is shared between users, but training statistics are stored per user in SQLite and are never returned to another account.

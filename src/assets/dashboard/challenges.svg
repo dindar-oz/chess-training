@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 12 208 156" width="208" height="156">
+  <defs></defs>
+  <circle cx="120" cy="90" r="76" fill="#f6e6dc" />
+  <rect x="72" y="84" width="96" height="58" rx="10" fill="#18242a" />
+  <rect x="84" y="74" width="26" height="10" rx="3" fill="#b85b4e" stroke="#18242a" stroke-width="2" />
+  <rect x="130" y="78" width="26" height="6" rx="3" fill="#d48a36" stroke="#18242a" stroke-width="2" />
+  <circle cx="98" cy="113" r="18" fill="#fffefa" /><circle cx="142" cy="113" r="18" fill="#fffefa" />
+  <path d="M98 113 L98 101 M98 113 L106 117" stroke="#18242a" stroke-width="2.5" stroke-linecap="round" />
+  <path d="M142 113 L142 99 M142 113 L134 108" stroke="#b85b4e" stroke-width="2.5" stroke-linecap="round" />
+  <g transform="translate(46 124) scale(1.0)" fill="#fffefa" stroke="#18242a" stroke-width="2.20" stroke-linejoin="round"><path d="M-2.5 -52 L2.5 -52 L2.5 -46 L8 -46 L8 -41 L2.5 -41 L2.5 -34 L-2.5 -34 L-2.5 -41 L-8 -41 L-8 -46 L-2.5 -46 Z" /><path d="M-15 -20 C-17 -34 17 -34 15 -20 Z" /><path d="M-16 -20 L16 -20 L12 -13 L-12 -13 Z" /><path d="M-12 -13 L12 -13 L16 12 L-16 12 Z" /><path d="M-20 12 L20 12 L24 22 L-24 22 Z" /><rect x="-26" y="22" width="52" height="8" rx="1.5" /></g>
+  <g transform="translate(194 124) scale(1.0)" fill="#18242a" stroke="#18242a" stroke-width="2.20" stroke-linejoin="round"><path d="M-2.5 -52 L2.5 -52 L2.5 -46 L8 -46 L8 -41 L2.5 -41 L2.5 -34 L-2.5 -34 L-2.5 -41 L-8 -41 L-8 -46 L-2.5 -46 Z" /><path d="M-15 -20 C-17 -34 17 -34 15 -20 Z" /><path d="M-16 -20 L16 -20 L12 -13 L-12 -13 Z" /><path d="M-12 -13 L12 -13 L16 12 L-16 12 Z" /><path d="M-20 12 L20 12 L24 22 L-24 22 Z" /><rect x="-26" y="22" width="52" height="8" rx="1.5" /></g>
+  <path d="M114 28 L106 50 L118 50 L110 68 L132 42 L120 42 L128 28 Z" fill="#d48a36" stroke="#18242a" stroke-width="2" stroke-linejoin="round" />
+  <path d="M80 38 L81.68 42.32 L86 44 L81.68 45.68 L80 50 L78.32 45.68 L74 44 L78.32 42.32 Z" fill="#b85b4e" />
+  <path d="M166 45 L167.4 48.6 L171 50 L167.4 51.4 L166 55 L164.6 51.4 L161 50 L164.6 48.6 Z" fill="#2c665d" />
+</svg>
