@@ -29,7 +29,7 @@ type HomeViewProps = {
 export function HomeView({ user, sessionCount, onNavigate, onLogout }: HomeViewProps) {
   const isAdmin = user.role === 'admin'
   return <main className="app-shell home-screen">
-    <PageHeader eyebrow="REPLAY LAB / HOME" title={<>Study the<br /><em>great games.</em></>} user={user} onLogout={onLogout} meta={<>{sessionCount} SESSIONS <strong>{user.elo} ELO</strong><strong>{user.xp} XP</strong></>} />
+    <PageHeader eyebrow="REPLAY LAB / HOME" title={<>Study the <em>great games.</em></>} user={user} onLogout={onLogout} meta={<>{sessionCount} SESSIONS <strong>{user.elo} ELO</strong><strong>{user.xp} XP</strong></>} />
     <nav className="dashboard-grid" aria-label="Sections">
       {tiles.filter((tile) => isAdmin || !tile.adminOnly).map((tile) => <button key={tile.view} className={`dashboard-tile tone-${tile.tone}`} onClick={() => onNavigate(tile.view)}>
         <span className="dashboard-art"><img src={tile.image} alt="" /></span>
