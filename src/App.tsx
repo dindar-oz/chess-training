@@ -12,6 +12,7 @@ import { InvitationToasts } from './challenges/InvitationToasts'
 import { ChallengesView } from './views/ChallengesView'
 import { ResetPasswordView } from './views/ResetPasswordView'
 import { AdminNotices } from './components/AdminNotices'
+import { BadgeProvider } from './badges/BadgeProvider'
 import { UpdateBanner } from './components/UpdateBanner'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
@@ -162,7 +163,7 @@ function App() {
   const viewProps = { user: authUser, onNavigate: setView, onLogout: () => void logout() }
   let page = null
   if (view === 'stats') page = <StatsView {...viewProps} sessionStats={sessionStats} />
-  else if (view === 'awards') page = <AwardsView {...viewProps} sessionStats={sessionStats} />
+  else if (view === 'awards') page = <AwardsView {...viewProps} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
   else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
   else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onImportFinished={loadGames} />
@@ -186,11 +187,13 @@ function App() {
   // review continues (and its result is saved) while the user browses other tabs.
   return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
     <ChallengeProvider userId={authUser.id} onChallengeStarted={() => setView('challenges')} onChallengeCompleted={refreshAccount}>
-      {page}
-      {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
-      <UpdateBanner view={view} trainingOpened={trainingKey > 0} />
-      <InvitationToasts onAccepted={() => setView('challenges')} />
-      {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
+      <BadgeProvider onOpenAwards={() => setView('awards')}>
+        {page}
+        {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
+        <UpdateBanner view={view} trainingOpened={trainingKey > 0} />
+        <InvitationToasts onAccepted={() => setView('challenges')} />
+        {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
+      </BadgeProvider>
     </ChallengeProvider>
   </RealtimeProvider>
 }

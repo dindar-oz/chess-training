@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
+import { awardBadge, handleBadgeRequest, initBadges } from './server/badges.ts'
 import { disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
@@ -530,6 +531,7 @@ const server = createServer(async (request, response) => {
       const endReason = body.endReason === 'timeout' ? 'timeout' : 'completed'
       database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, time_control, end_reason, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, timeControl, endReason, String(body.completedAt))
       const { xpGained, totalXp } = awardXp(user.id, sessionId, correctMoves, deviations, attemptedMoves, endReason === 'completed')
+      awardBadge(user.id, 'first-game')
       sendJson(response, 200, { ok: true, xpGained, totalXp })
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : 'Could not save statistics.' })
@@ -696,6 +698,8 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  if (request.url?.startsWith('/api/badges') && await handleBadgeRequest(request, response, currentUser(request))) return
+
   if (request.url?.startsWith('/api/challenges')) {
     await handleChallengeRequest(request, response, currentUser(request))
     return
@@ -715,6 +719,7 @@ const server = createServer(async (request, response) => {
 })
 
 initChallenges({ database, awardXp })
+initBadges({ database })
 startHeartbeat((tokenHash) => userForTokenHash(tokenHash) !== null)
 
 server.listen(port, '0.0.0.0', () => {
