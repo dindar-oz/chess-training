@@ -1,6 +1,7 @@
 import type { AppView } from '../types'
 
 const navItems: Array<{ view: AppView; icon: string; label: string; adminOnly?: boolean }> = [
+  { view: 'home', icon: '⌂', label: 'Home' },
   { view: 'library', icon: '♜', label: 'Game library' },
   { view: 'challenges', icon: '⚔', label: 'Challenges' },
   { view: 'stats', icon: '↗', label: 'My statistics' },

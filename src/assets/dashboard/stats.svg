@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 12 208 156" width="208" height="156">
+  <defs></defs>
+  <circle cx="120" cy="90" r="76" fill="#e2e8f1" />
+  <rect x="44" y="32" width="152" height="120" rx="8" fill="#fffefa" stroke="#18242a" stroke-width="2.2" />
+  <g stroke="#d9dedb" stroke-width="1.5" stroke-dasharray="4 4"><path d="M54 58 L186 58" /><path d="M54 82 L186 82" /><path d="M54 106 L186 106" /><path d="M54 130 L186 130" /></g>
+  <path d="M54 138 L188 138" stroke="#18242a" stroke-width="2" />
+  <g><rect x="62" y="114" width="17" height="24" rx="2" fill="#2c665d" stroke="#18242a" stroke-width="1.8" /><rect x="87" y="98" width="17" height="40" rx="2" fill="#2c665d" stroke="#18242a" stroke-width="1.8" /><rect x="112" y="106" width="17" height="32" rx="2" fill="#2c665d" stroke="#18242a" stroke-width="1.8" /><rect x="137" y="80" width="17" height="58" rx="2" fill="#2c665d" stroke="#18242a" stroke-width="1.8" /><rect x="162" y="60" width="17" height="78" rx="2" fill="#d48a36" stroke="#18242a" stroke-width="1.8" /></g>
+  <polyline points="70.5,102 95.5,86 120.5,94 145.5,68 170.5,48" fill="none" stroke="#3d5a8a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <g><circle cx="70.5" cy="102" r="4" fill="#fffefa" stroke="#3d5a8a" stroke-width="2.5" /><circle cx="95.5" cy="86" r="4" fill="#fffefa" stroke="#3d5a8a" stroke-width="2.5" /><circle cx="120.5" cy="94" r="4" fill="#fffefa" stroke="#3d5a8a" stroke-width="2.5" /><circle cx="145.5" cy="68" r="4" fill="#fffefa" stroke="#3d5a8a" stroke-width="2.5" /><circle cx="170.5" cy="48" r="4" fill="#fffefa" stroke="#3d5a8a" stroke-width="2.5" /></g>
+  <path d="M174.5 42 L188.5 28 M178.5 28 L188.5 28 L188.5 38" fill="none" stroke="#b85b4e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <rect x="54" y="42" width="44" height="6" rx="3" fill="#18242a" />
+</svg>

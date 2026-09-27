@@ -1,5 +1,5 @@
 export type Side = 'w' | 'b'
-export type AppView = 'library' | 'training' | 'challenges' | 'stats' | 'awards' | 'leaderboard' | 'admin'
+export type AppView = 'home' | 'library' | 'training' | 'challenges' | 'stats' | 'awards' | 'leaderboard' | 'admin'
 export type Role = 'user' | 'admin'
 export type AuthUser = { id: string; username: string; xp: number; elo: number; role: Role }
 export type GameFilter = 'all' | 'decisive' | 'draw'

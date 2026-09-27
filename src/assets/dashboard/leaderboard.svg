@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 12 208 156" width="208" height="156">
+  <defs></defs>
+  <circle cx="120" cy="90" r="76" fill="#e8e5f0" />
+  <rect x="90" y="94" width="60" height="58" fill="#2c665d" stroke="#18242a" stroke-width="2.2" /><text x="120.0" y="132.0" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="26" font-weight="800" fill="#fffefa">1</text>
+  <rect x="34" y="112" width="56" height="40" fill="#3d5a8a" stroke="#18242a" stroke-width="2.2" /><text x="62.0" y="141.0" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="26" font-weight="800" fill="#fffefa">2</text>
+  <rect x="150" y="122" width="56" height="30" fill="#b85b4e" stroke="#18242a" stroke-width="2.2" /><text x="178.0" y="146.0" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="26" font-weight="800" fill="#fffefa">3</text>
+  <path d="M24 152 L216 152" stroke="#18242a" stroke-width="2.5" stroke-linecap="round" />
+  <g transform="translate(120 69) scale(0.82)" fill="#f0c477" stroke="#18242a" stroke-width="2.68" stroke-linejoin="round"><path d="M-2.5 -52 L2.5 -52 L2.5 -46 L8 -46 L8 -41 L2.5 -41 L2.5 -34 L-2.5 -34 L-2.5 -41 L-8 -41 L-8 -46 L-2.5 -46 Z" /><path d="M-15 -20 C-17 -34 17 -34 15 -20 Z" /><path d="M-16 -20 L16 -20 L12 -13 L-12 -13 Z" /><path d="M-12 -13 L12 -13 L16 12 L-16 12 Z" /><path d="M-20 12 L20 12 L24 22 L-24 22 Z" /><rect x="-26" y="22" width="52" height="8" rx="1.5" /></g>
+  <g transform="translate(62 87) scale(0.78)" fill="#dfe4e6" stroke="#18242a" stroke-width="2.82" stroke-linejoin="round"><circle cx="0" cy="-30" r="7" /><path d="M-5 -23 L5 -23 L8 -14 L-8 -14 Z" /><path d="M-11 -6 C-11 -16, 11 -16, 11 -6 L14 12 L-14 12 Z" /><path d="M-20 12 L20 12 L24 22 L-24 22 Z" /><rect x="-26" y="22" width="52" height="8" rx="1.5" /></g>
+  <g transform="translate(178 97) scale(0.78)" fill="#d59a6a" stroke="#18242a" stroke-width="2.82" stroke-linejoin="round"><circle cx="0" cy="-30" r="7" /><path d="M-5 -23 L5 -23 L8 -14 L-8 -14 Z" /><path d="M-11 -6 C-11 -16, 11 -16, 11 -6 L14 12 L-14 12 Z" /><path d="M-20 12 L20 12 L24 22 L-24 22 Z" /><rect x="-26" y="22" width="52" height="8" rx="1.5" /></g>
+  <path d="M90 34 L91.68 38.32 L96 40 L91.68 41.68 L90 46 L88.32 41.68 L84 40 L88.32 38.32 Z" fill="#d48a36" />
+  <path d="M154 23 L155.96 28.04 L161 30 L155.96 31.96 L154 37 L152.04 31.96 L147 30 L152.04 28.04 Z" fill="#d48a36" />
+  <path d="M198 60 L199.12 62.88 L202 64 L199.12 65.12 L198 68 L196.88 65.12 L194 64 L196.88 62.88 Z" fill="#2c665d" />
+</svg>

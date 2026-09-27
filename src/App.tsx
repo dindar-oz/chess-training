@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AdminView } from './views/AdminView'
 import { AuthView } from './views/AuthView'
 import { AwardsView } from './views/AwardsView'
+import { HomeView } from './views/HomeView'
 import { LeaderboardView } from './views/LeaderboardView'
 import { LibraryView } from './views/LibraryView'
 import { StatsView } from './views/StatsView'
@@ -45,7 +46,7 @@ const sampleGame: GameRecord = {
 }
 
 function App() {
-  const [view, setView] = useState<AppView>('library')
+  const [view, setView] = useState<AppView>('home')
   const [games, setGames] = useState<GameRecord[]>(() => readStored('chess-training-games', [sampleGame]))
   const [sessionStats, setSessionStats] = useState<SessionStat[]>([])
   const [authUser, setAuthUser] = useState<AuthUser | null>(null)
@@ -127,7 +128,7 @@ function App() {
     setAuthUser(null)
     setSessionStats([])
     setTrainingKey(0)
-    setView('library')
+    setView('home')
   }
 
   async function deleteGame(gameId: string) {
@@ -166,6 +167,7 @@ function App() {
   else if (view === 'awards') page = <AwardsView {...viewProps} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
   else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
+  else if (view === 'home') page = <HomeView {...viewProps} sessionCount={sessionStats.length} />
   else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onImportFinished={loadGames} />
   else if (view !== 'training') {
     page = <LibraryView
