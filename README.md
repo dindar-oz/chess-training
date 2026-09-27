@@ -103,9 +103,19 @@ The first admin comes from the `ADMIN_USERNAMES` environment variable (comma-sep
 
 Registering first matters: promotion by name would otherwise hand admin rights to whoever registers that name. Admins listed in `ADMIN_USERNAMES` show as locked in the panel and can't be demoted, disabled or deleted there. Admins also can't change their own account, so at least one admin always remains.
 
+## Badges
+
+The **Awards** tab shows every badge, earned or still locked:
+
+- **1st Game Completed**: finish your first game, in training or in a challenge.
+- **First Challenge**: play a challenge through to the results (running out of time counts; resigning doesn't).
+- **Hat Trick**, **On Fire**, **Master Mind**: match 3, 5 or 10 of the master's moves in a row within one challenge.
+
+The server awards badges and remembers them per account. A new badge is celebrated once, with an animation and a fanfare: as a small corner card that doesn't block the board while your challenge clock is running, and as a full-screen moment otherwise. A badge earned while no page was open is celebrated at your next visit. Badges for play from before badges existed are granted automatically when the server starts.
+
 ## Sounds
 
-The app plays short sounds, synthesized in the browser (no audio files): your moves, with distinct sounds for captures, castling, promotion and check; a softer knock for the historical opponent's reply; a low tone when your move differs from the master's; session start and end; a low-time warning under 20 seconds and a flag-fall sound; the challenge countdown, start fanfare and results; invitations; a player accepting your challenge; incoming chat messages; and, for admins, password reset requests. The **Sound on/off** switch in the header turns them off (remembered per browser).
+The app plays short sounds, synthesized in the browser (no audio files): your moves, with distinct sounds for captures, castling, promotion and check; a softer knock for the historical opponent's reply; a low tone when your move differs from the master's; session start and end; a low-time warning under 20 seconds and a flag-fall sound; the challenge countdown, start fanfare and results; invitations; a player accepting your challenge; incoming chat messages; new badges; and, for admins, password reset requests. The **Sound on/off** switch in the header turns them off (remembered per browser).
 
 ## Engine review
 

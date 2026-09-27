@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" width="160" height="190">
+  <defs>
+    <linearGradient id="fcFace" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f0c477" />
+      <stop offset="100%" stop-color="#d48a36" />
+    </linearGradient>
+    <linearGradient id="fcFlame" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f6b53f" />
+      <stop offset="100%" stop-color="#c9432f" />
+    </linearGradient>
+  </defs>
+
+  <path d="M56 96 L34 172 L80 150 L126 172 L104 96 Z" fill="#2c665d" />
+  <path d="M56 96 L34 172 L58 160 L66 100 Z" fill="#22524a" />
+  <path d="M104 96 L126 172 L102 160 L94 100 Z" fill="#22524a" />
+
+  <circle cx="80" cy="76" r="58" fill="#18242a" />
+  <circle cx="80" cy="76" r="52" fill="url(#fcFace)" />
+  <circle cx="80" cy="76" r="52" fill="none" stroke="#18242a" stroke-width="2" />
+  <circle cx="80" cy="76" r="42" fill="none" stroke="#fffefa" stroke-opacity=".55" stroke-width="1.5" stroke-dasharray="2 4" />
+
+  <g transform="translate(80 76)">
+    <g id="sword" transform="rotate(45)">
+      <path d="M-4.5 -36 L0 -45 L4.5 -36 L4.5 12 L-4.5 12 Z" fill="#fffefa" stroke="#18242a" stroke-width="2" stroke-linejoin="round" />
+      <path d="M0 -38 L0 10" stroke="#18242a" stroke-opacity=".35" stroke-width="1.2" />
+      <rect x="-14" y="12" width="28" height="6" rx="2" fill="#18242a" />
+      <rect x="-3.5" y="18" width="7" height="14" rx="1.5" fill="#b85b4e" stroke="#18242a" stroke-width="1.5" />
+      <circle cx="0" cy="35.5" r="4.5" fill="#18242a" />
+    </g>
+    <use href="#sword" transform="scale(-1 1)" />
+  </g>
+</svg>

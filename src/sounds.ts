@@ -9,7 +9,7 @@ export type SoundName =
   | 'deviation' | 'lowTime' | 'timeout'
   | 'sessionStart' | 'sessionEnd'
   | 'countdown' | 'challengeStart' | 'challengeEnd'
-  | 'invitation' | 'playerJoined' | 'chat' | 'notify'
+  | 'invitation' | 'playerJoined' | 'chat' | 'notify' | 'badge'
 
 const storageKey = 'chess-training-sound'
 const masterVolume = 0.6
@@ -118,6 +118,12 @@ const sounds: Record<SoundName, (ctx: AudioContext, at: number) => void> = {
   playerJoined: (ctx, at) => notes(ctx, at, [660, 880], 0.08, 0.14, { gain: 0.12 }),
   chat: (ctx, at) => tone(ctx, at, 1250, 0.07, { gain: 0.08, endFrequency: 850 }),
   notify: (ctx, at) => notes(ctx, at, [784, 988], 0.12, 0.3, { gain: 0.12 }),
+  // A rising fanfare that lands on a held chord, with a sparkle on top.
+  badge: (ctx, at) => {
+    notes(ctx, at, [523, 659, 784, 1047], 0.08, 0.3, { type: 'triangle', gain: 0.12 })
+    notes(ctx, at + 0.36, [784, 1047, 1319, 1568], 0, 0.9, { gain: 0.06 })
+    notes(ctx, at + 0.42, [2093, 2637, 3136, 4186], 0.06, 0.14, { gain: 0.03 })
+  },
 }
 
 export function play(name: SoundName, delaySeconds = 0) {

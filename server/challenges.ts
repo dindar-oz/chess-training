@@ -5,7 +5,9 @@ import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
 import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { currentStreak, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
+import { awardBadge } from './badges.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
 import { isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
 
@@ -518,6 +520,11 @@ function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<str
       database.prepare('UPDATE challenge_players SET remaining_ms = ?, clock_started_at = ?, next_ply = ?, moves_played = moves_played + 1 WHERE id = ?').run(remainingMs, now + (correct ? 0 : correctionDelayMs), nextPly, player.id)
     }
   })
+  if (correct) {
+    const recent = database.prepare('SELECT correct FROM challenge_moves WHERE player_id = ? ORDER BY ply DESC LIMIT 10').all(player.id) as Array<{ correct: number }>
+    const streak = currentStreak(recent.reverse().map((move) => move.correct === 1))
+    for (const badgeId of streakBadgesFor(streak)) awardBadge(user.id, badgeId)
+  }
   scheduleFlag(player.id)
   finishIfAllDone(challenge.id)
   publish(challenge.id)
@@ -632,6 +639,12 @@ function completeChallenge(challengeId: string) {
     database.prepare("UPDATE challenges SET status = 'complete', completed_at = ? WHERE id = ?").run(completedAt, challengeId)
   })
   parsedGames.delete(challengeId)
+  for (const player of players) {
+    if (!player.user_id || player.moves_played === 0) continue
+    // Challenges also count as a finished session for the first-game badge.
+    awardBadge(player.user_id, 'first-game')
+    if (player.play_status !== 'resigned') awardBadge(player.user_id, 'first-challenge')
+  }
   for (const [playerId, change] of changes) {
     const userId = players.find((player) => player.id === playerId)?.user_id
     if (userId) updateOnlineUser(userId, { elo: change.after })
