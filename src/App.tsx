@@ -167,7 +167,7 @@ function App() {
   else if (view === 'awards') page = <AwardsView {...viewProps} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
   else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
-  else if (view === 'home') page = <HomeView {...viewProps} sessionCount={sessionStats.length} />
+  else if (view === 'home') page = <HomeView {...viewProps} games={games} sessionStats={sessionStats} onTrain={openTraining} />
   else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onImportFinished={loadGames} />
   else if (view !== 'training') {
     page = <LibraryView
