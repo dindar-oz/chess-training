@@ -43,4 +43,8 @@
     <path d="M0 -10 C8 -2 16 6 15 16 C14 26 7 30 0 30 C-7 30 -14 26 -15 16 C-16 6 -8 0 -4 -8 C-2 -2 1 0 2 2 C5 -3 3 -6 0 -10 Z" fill="#ffd978" />
     <text x="0" y="25" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="23" font-weight="800" fill="#18242a">10</text>
   </g>
+  <g>
+    <rect x="28" y="155" width="104" height="32" rx="16" fill="#18242a" stroke="#fffefa" stroke-width="2" />
+    <text x="80" y="177.5" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="19" font-weight="800" fill="#f0c477">+75 XP</text>
+  </g>
 </svg>

@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DatabaseSync } from 'node:sqlite'
-import { isBadgeId, longestStreak, streakBadgesFor } from '../shared/badges.ts'
+import { badgeXp, isBadgeId, longestStreak, streakBadgesFor } from '../shared/badges.ts'
 import type { BadgeId } from '../shared/badges.ts'
 import { readJson, RequestError, sendError, sendJson } from './http.ts'
 import { sendToUser } from './realtime.ts'
@@ -21,6 +22,28 @@ export function initBadges(dependencies: { database: DatabaseSync }) {
     )
   `)
   backfill()
+  payEarnedBadgeXp()
+}
+
+// Pays a badge's XP to its holder exactly once: the xp_events row, keyed by user
+// and badge, makes repeats (and restarts) harmless. Returns true if XP was paid.
+function payBadgeXp(userId: string, badgeId: string) {
+  if (!isBadgeId(badgeId)) return false
+  const amount = badgeXp(badgeId)
+  const inserted = database.prepare('INSERT OR IGNORE INTO xp_events (id, user_id, session_id, amount, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), userId, `badge:${userId}:${badgeId}`, amount, 'badge', new Date().toISOString())
+  if (inserted.changes === 0) return false
+  database.prepare('UPDATE users SET xp = xp + ? WHERE id = ?').run(amount, userId)
+  return true
+}
+
+// Badges earned before badges paid XP (and any payment a crash interrupted) are
+// paid at startup.
+function payEarnedBadgeXp() {
+  const earned = database.prepare('SELECT user_badges.user_id AS userId, user_badges.badge_id AS badgeId FROM user_badges JOIN users ON users.id = user_badges.user_id').all() as Array<{ userId: string; badgeId: string }>
+  let paid = 0
+  for (const { userId, badgeId } of earned) if (payBadgeXp(userId, badgeId)) paid += 1
+  if (paid > 0) console.error(`Paid XP for ${paid} previously earned badges.`)
 }
 
 // Grants badges for play that happened before badges were stored. The first-game
@@ -56,11 +79,13 @@ function backfill() {
   }
 }
 
-// Idempotent; tells the player's open pages when the badge is new.
+// Idempotent; pays the badge's XP and tells the player's open pages when the badge is new.
 export function awardBadge(userId: string, badgeId: BadgeId) {
   const earnedAt = new Date().toISOString()
   const inserted = database.prepare('INSERT OR IGNORE INTO user_badges (user_id, badge_id, earned_at) VALUES (?, ?, ?)').run(userId, badgeId, earnedAt)
-  if (inserted.changes > 0) sendToUser(userId, 'badge_earned', { id: badgeId, earnedAt, seen: false })
+  if (inserted.changes === 0) return
+  payBadgeXp(userId, badgeId)
+  sendToUser(userId, 'badge_earned', { id: badgeId, earnedAt, seen: false })
 }
 
 function listBadges(userId: string) {

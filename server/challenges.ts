@@ -5,7 +5,7 @@ import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
 import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
-import { currentStreak, streakBadgesFor } from '../shared/badges.ts'
+import { analysisBadgesFor, currentStreak, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { awardBadge } from './badges.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
@@ -85,6 +85,15 @@ type MoveRow = {
   // player's own analysis; null until submitted.
   cpl: number | null
   original_cpl: number | null
+  // Raw engine scores in centipawns for the mover (mates as +-100000) and the
+  // engine's best move, for the engine badges; null from older pages, and the
+  // second-best score only at badge depth.
+  best_score: number | null
+  attempted_score: number | null
+  original_score: number | null
+  second_score: number | null
+  best_uci: string | null
+  attempted_uci: string
 }
 
 type ParsedGame = { moves: Move[] }
@@ -177,6 +186,11 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
     'ALTER TABLE challenges ADD COLUMN chat_muted INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE challenge_players ADD COLUMN analysis_submitted_at TEXT',
     'ALTER TABLE challenge_moves ADD COLUMN original_cpl REAL',
+    'ALTER TABLE challenge_moves ADD COLUMN best_score REAL',
+    'ALTER TABLE challenge_moves ADD COLUMN attempted_score REAL',
+    'ALTER TABLE challenge_moves ADD COLUMN original_score REAL',
+    'ALTER TABLE challenge_moves ADD COLUMN second_score REAL',
+    'ALTER TABLE challenge_moves ADD COLUMN best_uci TEXT',
   ]) {
     try {
       database.exec(migration)
@@ -562,17 +576,36 @@ function storeAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<
   if (player.analysis_submitted_at) return
   const results = Array.isArray(body.results) ? body.results as Array<Record<string, unknown>> : []
   const plies = (database.prepare('SELECT ply FROM challenge_moves WHERE player_id = ?').all(player.id) as Array<{ ply: number }>).map((row) => row.ply)
-  const byPly = new Map<number, { cpl: number; originalCpl: number }>()
+  type Review = { cpl: number; originalCpl: number; best: number | null; attempted: number | null; original: number | null; second: number | null; bestUci: string | null }
+  const byPly = new Map<number, Review>()
   const validCpl = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 200_000
+  // Scores are optional, so pages from before the engine badges still work.
+  const optionalScore = (value: unknown) => {
+    if (value === undefined || value === null) return null
+    if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 100_000) throw new RequestError(400, 'Malformed analysis result.')
+    return value
+  }
   for (const result of results) {
     if (typeof result?.ply !== 'number' || !validCpl(result.cpl) || !validCpl(result.originalCpl)) throw new RequestError(400, 'Malformed analysis result.')
-    byPly.set(result.ply, { cpl: result.cpl, originalCpl: result.originalCpl })
+    const bestUci = typeof result.bestUci === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(result.bestUci) ? result.bestUci : null
+    byPly.set(result.ply, {
+      cpl: result.cpl,
+      originalCpl: result.originalCpl,
+      best: optionalScore(result.best),
+      attempted: optionalScore(result.attempted),
+      original: optionalScore(result.original),
+      second: optionalScore(result.second),
+      bestUci,
+    })
   }
   const missing = plies.filter((ply) => !byPly.has(ply)).length
   if (missing > 0) throw new RequestError(400, `The analysis is missing ${missing} of ${plies.length} moves.`)
   withTransaction(() => {
-    const update = database.prepare('UPDATE challenge_moves SET cpl = ?, original_cpl = ? WHERE player_id = ? AND ply = ?')
-    for (const ply of plies) update.run(byPly.get(ply)!.cpl, byPly.get(ply)!.originalCpl, player.id, ply)
+    const update = database.prepare('UPDATE challenge_moves SET cpl = ?, original_cpl = ?, best_score = ?, attempted_score = ?, original_score = ?, second_score = ?, best_uci = ? WHERE player_id = ? AND ply = ?')
+    for (const ply of plies) {
+      const review = byPly.get(ply)!
+      update.run(review.cpl, review.originalCpl, review.best, review.attempted, review.original, review.second, review.bestUci, player.id, ply)
+    }
     database.prepare('UPDATE challenge_players SET analysis_submitted_at = ? WHERE id = ?').run(new Date().toISOString(), player.id)
   })
   completeIfAnalyzed(challenge.id, false)
@@ -585,7 +618,7 @@ function average(values: number[]) {
 function completeChallenge(challengeId: string) {
   const challenge = getChallenge(challengeId)!
   const players = getPlayers(challengeId).filter(isParticipant)
-  const moves = database.prepare('SELECT player_id, ply, correct, cpl, original_cpl FROM challenge_moves WHERE challenge_id = ?').all(challengeId) as MoveRow[]
+  const moves = database.prepare('SELECT player_id, ply, correct, cpl, original_cpl, best_score, attempted_score, original_score, second_score, best_uci, attempted_uci FROM challenge_moves WHERE challenge_id = ? ORDER BY ply').all(challengeId) as MoveRow[]
   // A player who made moves but whose analysis never arrived has no accuracy.
   const forfeited = (player: PlayerRow) => player.moves_played > 0 && !player.analysis_submitted_at
   const stats = new Map(players.map((player) => {
@@ -644,6 +677,19 @@ function completeChallenge(challengeId: string) {
     // Challenges also count as a finished session for the first-game badge.
     awardBadge(player.user_id, 'first-game')
     if (player.play_status !== 'resigned') awardBadge(player.user_id, 'first-challenge')
+    // Engine badges come from the player's own reviewed moves.
+    if (forfeited(player)) continue
+    const reviewed = moves.filter((move) => move.player_id === player.id).map((move) => ({
+      correct: move.correct === 1,
+      cpl: move.cpl ?? 0,
+      originalCpl: move.original_cpl ?? 0,
+      best: move.best_score,
+      attempted: move.attempted_score,
+      original: move.original_score,
+      second: move.second_score,
+      playedBest: move.best_uci !== null && move.best_uci === move.attempted_uci,
+    }))
+    for (const badgeId of analysisBadgesFor({ depth: challenge.depth, finished: player.play_status === 'finished', moves: reviewed })) awardBadge(player.user_id, badgeId)
   }
   for (const [playerId, change] of changes) {
     const userId = players.find((player) => player.id === playerId)?.user_id

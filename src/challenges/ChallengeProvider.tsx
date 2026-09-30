@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { scoreValue } from '../../shared/accuracy.ts'
+import { minBadgeDepth } from '../../shared/badges.ts'
 import { analysisGraceMs, helperDelayMs } from '../../shared/challengeRules.ts'
 import { ClientStockfishEngine } from '../clientStockfish'
 import { play } from '../sounds'
@@ -13,6 +14,31 @@ import { useNow } from './useNow'
 import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 const activeStatuses = ['lobby', 'playing', 'analyzing']
+
+type MoveToReview = { ply: number; fen: string; expectedUci: string; attemptedUci: string }
+
+// Reviews one challenge move for the server: centipawn losses plus the raw scores
+// (centipawns for the mover) that decide the engine badges. At badge depth the
+// best line is searched with its runner-up, so only moves (!) can be spotted.
+async function reviewMove(engine: ClientStockfishEngine, move: MoveToReview, depth: number) {
+  const top = depth >= minBadgeDepth
+    ? await engine.analyzeTopTwo(move.fen, depth)
+    : { best: await engine.analyze(move.fen, depth), second: null, bestUci: null }
+  const best = scoreValue(top.best)
+  const original = scoreValue(await engine.analyze(move.fen, depth, move.expectedUci))
+  const attempted = scoreValue(await engine.analyze(move.fen, depth, move.attemptedUci))
+  return {
+    ply: move.ply,
+    cpl: Math.max(0, best - attempted),
+    originalCpl: Math.max(0, best - original),
+    best,
+    attempted,
+    original,
+    second: top.second ? scoreValue(top.second) : null,
+    bestUci: top.bestUci,
+  }
+}
+type MoveReview = Awaited<ReturnType<typeof reviewMove>>
 
 async function request<T>(path: string, body?: unknown) {
   const response = await fetch(path, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -133,8 +159,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   useEffect(() => {
     if (!challengeIdForAnalysis) return
     const isStale = () => currentRef.current?.snapshot.id !== challengeIdForAnalysis
-    if (myPositionFen) void engine.prefetch(myPositionFen, depth, null, null, isStale)
-    for (const move of myMoves ?? []) void engine.prefetch(move.fen, depth, move.expectedUci, move.attemptedUci, isStale)
+    const topTwo = depth >= minBadgeDepth
+    if (myPositionFen) void engine.prefetch(myPositionFen, depth, null, null, isStale, topTwo)
+    for (const move of myMoves ?? []) void engine.prefetch(move.fen, depth, move.expectedUci, move.attemptedUci, isStale, topTwo)
   }, [challengeIdForAnalysis, depth, engine, myMoves, myPositionFen])
 
   // Once you've finished (or timed out or resigned), your browser completes the
@@ -153,12 +180,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       try {
         let done = 0
         setAnalysisRun({ challengeId, done, total: moves.length, error: null })
-        const results: Array<{ ply: number; cpl: number; originalCpl: number }> = []
+        const results: MoveReview[] = []
         for (const move of moves) {
-          const best = scoreValue(await engine.analyze(move.fen, depth))
-          const original = scoreValue(await engine.analyze(move.fen, depth, move.expectedUci))
-          const attempted = scoreValue(await engine.analyze(move.fen, depth, move.attemptedUci))
-          results.push({ ply: move.ply, cpl: Math.max(0, best - attempted), originalCpl: Math.max(0, best - original) })
+          results.push(await reviewMove(engine, move, depth))
           done += 1
           setAnalysisRun({ challengeId, done, total: moves.length, error: null })
         }
@@ -202,12 +226,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
             setHelperRuns(helperRunsRef.current)
           }
           update(0)
-          const results: Array<{ ply: number; cpl: number; originalCpl: number }> = []
+          const results: MoveReview[] = []
           for (const move of input.moves) {
-            const best = scoreValue(await engine.analyze(move.fen, input.depth))
-            const original = scoreValue(await engine.analyze(move.fen, input.depth, move.expectedUci))
-            const attempted = scoreValue(await engine.analyze(move.fen, input.depth, move.attemptedUci))
-            results.push({ ply: move.ply, cpl: Math.max(0, best - attempted), originalCpl: Math.max(0, best - original) })
+            results.push(await reviewMove(engine, move, input.depth))
             update(results.length)
           }
           apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId}/players/${playerId}/analysis`, { results }))

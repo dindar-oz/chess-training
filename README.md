@@ -109,13 +109,23 @@ Registering first matters: promotion by name would otherwise hand admin rights t
 
 ## Badges
 
-The **Awards** tab shows every badge, earned or still locked:
+The **Awards** tab shows every badge, earned or still locked. Each badge pays XP once, when it is earned, and its image shows how much:
 
-- **1st Game Completed**: finish your first game, in training or in a challenge.
-- **First Challenge**: play a challenge through to the results (running out of time counts; resigning doesn't).
-- **Hat Trick**, **On Fire**, **Master Mind**: match 3, 5 or 10 of the master's moves in a row within one challenge.
+| Badge | How to earn it | XP |
+|---|---|---|
+| **1st Game Completed** | Finish your first game, in training or in a challenge. | 10 |
+| **First Challenge** | Play a challenge through to the results (running out of time counts; resigning doesn't). | 20 |
+| **Hat Trick**, **On Fire**, **Master Mind** | Match 3, 5 or 10 of the master's moves in a row within one challenge. | 15, 30, 75 |
+| **Improver** | Play a move the engine rates better than the master's. | 40 |
+| **History Rewriter** | Do that 3 times in one challenge. | 120 |
+| **Outplayed the Master** | Finish a challenge with an accuracy at least 1 point above the master's on the same moves. | 100 |
+| **Steady Hand** | Finish a challenge without a blunder (??). | 50 |
+| **Flawless** | Finish a challenge without a mistake (?) or a blunder. | 150 |
+| **Sharp Eye** | Find 3 only moves (!) in one challenge. | 100 |
 
-The server awards badges and remembers them per account. A new badge is celebrated once, with an animation and a fanfare: as a small corner card that doesn't block the board while your challenge clock is running, and as a full-screen moment otherwise. A badge earned while no page was open is celebrated at your next visit. Badges for play from before badges existed are granted automatically when the server starts.
+The last six are engine badges: they count only in challenges reviewed at depth 21 or more, and "finish" means playing every move on time. They are judged as on lichess, by winning chances from -1 (lost) to 1 (won): a move that loses 0.2 of them is a mistake and 0.3 a blunder, so dropping from +9 to +6 in a won position is neither. An only move is the engine's best move when the second-best move loses at least 0.2, and a move beats the master's when it keeps at least 0.05 more (so engine noise between equal moves doesn't count). At depth 21 or more each player's browser also searches the second-best move of every position, which makes the review a little slower. The rules live in `shared/badges.ts` with tests.
+
+The server awards badges and remembers them per account. A new badge is celebrated once, with an animation and a fanfare: as a small corner card that doesn't block the board while your challenge clock is running, and as a full-screen moment otherwise. A badge earned while no page was open is celebrated at your next visit. Badges for play from before badges existed are granted automatically when the server starts, and XP for badges earned before badges paid XP is paid once at startup. Engine badges aren't granted for old challenges, which didn't store the scores they need.
 
 ## Sounds
 

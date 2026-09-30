@@ -68,7 +68,7 @@ export function BadgeCelebration({ badgeId, remaining, onDismiss, onOpenAwards }
       {medal}
       <div className="celebration-text">
         <p className="section-label">NEW BADGE</p>
-        <strong>{badge.name}</strong>
+        <strong>{badge.name} <b className="celebration-xp">+{badge.xp} XP</b></strong>
         <span>{badge.description}</span>
       </div>
     </div>
@@ -81,6 +81,7 @@ export function BadgeCelebration({ badgeId, remaining, onDismiss, onOpenAwards }
       <p className="section-label">NEW BADGE EARNED</p>
       <h2 id="celebration-title">{badge.name}</h2>
       <p className="celebration-description">{badge.description}</p>
+      <p className="xp-earned">+{badge.xp} XP earned</p>
       <div className="celebration-actions">
         <button className="primary-button" autoFocus onClick={onDismiss}>{remaining > 0 ? 'Next badge' : 'Awesome!'}</button>
         <button className="text-button" onClick={onOpenAwards}>See all badges</button>
