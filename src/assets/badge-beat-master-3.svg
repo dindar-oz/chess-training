@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 190" width="160" height="190">
+  <defs>
+    <linearGradient id="bm3Face" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe08a" />
+      <stop offset="100%" stop-color="#d9971f" />
+    </linearGradient>
+  </defs>
+  <g opacity=".85">
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(0 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(30 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(60 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(90 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(120 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(150 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(180 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(210 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(240 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(270 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(300 80 76)" />
+    <path d="M80 76 L76 6 L84 6 Z" fill="#f0c477" transform="rotate(330 80 76)" />
+  </g>
+  <path d="M56 96 L34 172 L80 150 L126 172 L104 96 Z" fill="#b85b4e" />
+  <path d="M56 96 L34 172 L58 160 L66 100 Z" fill="#9c4a3f" />
+  <path d="M104 96 L126 172 L102 160 L94 100 Z" fill="#9c4a3f" />
+
+  <circle cx="80" cy="76" r="58" fill="#18242a" />
+  <circle cx="80" cy="76" r="52" fill="url(#bm3Face)" />
+  <circle cx="80" cy="76" r="52" fill="none" stroke="#18242a" stroke-width="2" />
+  <circle cx="80" cy="76" r="42" fill="none" stroke="#fffefa" stroke-opacity=".55" stroke-width="1.5" stroke-dasharray="2 4" />
+
+  <g transform="translate(80 92)">
+    <path d="M-28 8 L-32 -20 L-15 -6 L0 -28 L15 -6 L32 -20 L28 8 Z" fill="#fffefa" stroke="#18242a" stroke-width="2.5" stroke-linejoin="round" />
+    <rect x="-29" y="8" width="58" height="9" rx="2" fill="#18242a" />
+    <circle cx="-32" cy="-20" r="3.5" fill="#b85b4e" stroke="#18242a" stroke-width="1.5" />
+    <circle cx="0" cy="-28" r="3.5" fill="#b85b4e" stroke="#18242a" stroke-width="1.5" />
+    <circle cx="32" cy="-20" r="3.5" fill="#b85b4e" stroke="#18242a" stroke-width="1.5" />
+  </g>
+  <path transform="translate(60 50)" d="M0 -14 L9 -3 L3.5 -3 L3.5 9 L-3.5 9 L-3.5 -3 L-9 -3 Z" fill="#2c665d" stroke="#18242a" stroke-width="2" stroke-linejoin="round" />
+  <path transform="translate(80 44)" d="M0 -14 L9 -3 L3.5 -3 L3.5 9 L-3.5 9 L-3.5 -3 L-9 -3 Z" fill="#2c665d" stroke="#18242a" stroke-width="2" stroke-linejoin="round" />
+  <path transform="translate(100 50)" d="M0 -14 L9 -3 L3.5 -3 L3.5 9 L-3.5 9 L-3.5 -3 L-9 -3 Z" fill="#2c665d" stroke="#18242a" stroke-width="2" stroke-linejoin="round" />
+
+  <g>
+    <rect x="28" y="155" width="104" height="32" rx="16" fill="#18242a" stroke="#fffefa" stroke-width="2" />
+    <text x="80" y="177.5" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Arial, sans-serif" font-size="19" font-weight="800" fill="#f0c477">+120 XP</text>
+  </g>
+</svg>

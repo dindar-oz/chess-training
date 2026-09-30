@@ -189,7 +189,7 @@ function App() {
   // review continues (and its result is saved) while the user browses other tabs.
   return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
     <ChallengeProvider userId={authUser.id} onChallengeStarted={() => setView('challenges')} onChallengeCompleted={refreshAccount}>
-      <BadgeProvider onOpenAwards={() => setView('awards')}>
+      <BadgeProvider onOpenAwards={() => setView('awards')} onXpChanged={refreshAccount}>
         {page}
         {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
         <UpdateBanner view={view} trainingOpened={trainingKey > 0} />

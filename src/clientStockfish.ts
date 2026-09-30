@@ -27,11 +27,15 @@ let sharedReady: Promise<void> | null = null
 // reviews and challenge analysis may use separate engine instances concurrently.
 let sharedQueue: Promise<unknown> = Promise.resolve()
 
+// A finished search: the score of each principal line, best first (MultiPV), and
+// the move the engine would play.
+type SearchResult = { lines: Array<EngineScore | undefined>; bestUci: string | null }
+
 // Results are cached by depth, position and move, so searches run in the
 // background during a session are reused instantly by the end-of-game review.
 // A prefetch is skipped when its turn comes if it has gone stale (the session
 // was abandoned) and nothing else has asked for the same search meanwhile.
-type CacheEntry = { promise: Promise<EngineScore>; needed: boolean }
+type CacheEntry = { promise: Promise<SearchResult>; needed: boolean }
 const resultCache = new Map<string, CacheEntry>()
 const maxCachedResults = 4000
 
@@ -68,9 +72,12 @@ export class ClientStockfishEngine {
     this.ready = shared.ready
   }
 
-  private analyzeSingle(fen: string, depth: number, moveUci?: string): Promise<EngineScore> {
-    return this.ready.then(() => new Promise<EngineScore>((resolve, reject) => {
-      let latestScore: EngineScore | null = null
+  // One search of `multipv` principal lines (the best `multipv` moves), or of the
+  // single move `moveUci` when given. The option is set on every search because
+  // the worker is shared.
+  private search(fen: string, depth: number, moveUci: string | undefined, multipv: number): Promise<SearchResult> {
+    return this.ready.then(() => new Promise<SearchResult>((resolve, reject) => {
+      const lines: Array<EngineScore | undefined> = []
       const timeout = window.setTimeout(() => {
         this.worker.removeEventListener('message', onMessage)
         reject(new Error('Engine analysis timed out.'))
@@ -79,23 +86,25 @@ export class ClientStockfishEngine {
       const onMessage = (event: MessageEvent<string>) => {
         const line = event.data
         const score = parseScore(line)
-        if (score) latestScore = score
+        if (score) lines[Number(line.match(/ multipv (\d+)/)?.[1] ?? 1) - 1] = score
         if (line.startsWith('bestmove')) {
           window.clearTimeout(timeout)
           this.worker.removeEventListener('message', onMessage)
-          if (latestScore) resolve(latestScore)
+          const bestUci = line.split(' ')[1] ?? ''
+          if (lines[0]) resolve({ lines, bestUci: /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(bestUci) ? bestUci : null })
           else reject(new Error('Engine returned no score.'))
         }
       }
 
       this.worker.addEventListener('message', onMessage)
+      this.worker.postMessage(`setoption name MultiPV value ${multipv}`)
       this.worker.postMessage(`position fen ${fen}`)
       this.worker.postMessage(`go depth ${depth}${moveUci ? ` searchmoves ${moveUci}` : ''}`)
     }))
   }
 
-  private queued(fen: string, depth: number, moveUci: string | undefined, isStale?: () => boolean) {
-    const key = `${depth}|${fen}|${moveUci ?? '*'}`
+  private queued(fen: string, depth: number, moveUci: string | undefined, multipv: number, isStale?: () => boolean) {
+    const key = `${depth}|${fen}|${moveUci ?? '*'}${multipv > 1 ? `|top${multipv}` : ''}`
     const cached = resultCache.get(key)
     if (cached) {
       if (!isStale) cached.needed = true
@@ -104,7 +113,7 @@ export class ClientStockfishEngine {
     const entry = { needed: !isStale } as CacheEntry
     entry.promise = sharedQueue.then(() => {
       if (!entry.needed && isStale?.()) throw new StaleAnalysisError('Skipped a stale background search.')
-      return this.analyzeSingle(fen, depth, moveUci)
+      return this.search(fen, depth, moveUci, multipv)
     })
     sharedQueue = entry.promise.catch(() => undefined)
     // Failed or skipped searches aren't cached, so a later request retries them.
@@ -115,17 +124,24 @@ export class ClientStockfishEngine {
   }
 
   analyze(fen: string, depth: number, moveUci?: string) {
-    return this.queued(fen, depth, moveUci)
+    return this.queued(fen, depth, moveUci, 1).then((result) => result.lines[0]!)
+  }
+
+  // The best move's score, the second-best move's (null with only one legal
+  // move), and the best move itself. Used where only moves (!) are judged.
+  analyzeTopTwo(fen: string, depth: number) {
+    return this.queued(fen, depth, undefined, 2).then((result) => ({ best: result.lines[0]!, second: result.lines[1] ?? null, bestUci: result.bestUci }))
   }
 
   // Queues the searches compare() will need for a move: the best line, the
   // master's move and the attempted move, as far as they are known yet (before
-  // you move, only the position). Resolves true once all are done, false if they
-  // were skipped as stale or failed.
-  prefetch(fen: string, depth: number, originalUci: string | null, attemptedUci: string | null, isStale: () => boolean) {
-    const searches = [this.queued(fen, depth, undefined, isStale)]
-    if (originalUci) searches.push(this.queued(fen, depth, originalUci, isStale))
-    if (attemptedUci && attemptedUci !== originalUci) searches.push(this.queued(fen, depth, attemptedUci, isStale))
+  // you move, only the position). With `topTwo` the best line is searched with
+  // its runner-up, as analyzeTopTwo() needs. Resolves true once all are done,
+  // false if they were skipped as stale or failed.
+  prefetch(fen: string, depth: number, originalUci: string | null, attemptedUci: string | null, isStale: () => boolean, topTwo = false) {
+    const searches: Array<Promise<unknown>> = [this.queued(fen, depth, undefined, topTwo ? 2 : 1, isStale)]
+    if (originalUci) searches.push(this.queued(fen, depth, originalUci, 1, isStale))
+    if (attemptedUci && attemptedUci !== originalUci) searches.push(this.queued(fen, depth, attemptedUci, 1, isStale))
     return Promise.all(searches).then(() => true, () => false)
   }
 

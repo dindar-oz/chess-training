@@ -13,12 +13,14 @@ const celebrationDelayMs = 900
 type BadgeProviderProps = {
   children: ReactNode
   onOpenAwards: () => void
+  // A new badge paid XP on the server.
+  onXpChanged: () => void
 }
 
 // Knows which badges the player holds and celebrates each new one exactly once:
 // live when the server announces it, or on the next visit if it was earned while
 // no page was open (the server remembers which celebrations were seen).
-export function BadgeProvider({ children, onOpenAwards }: BadgeProviderProps) {
+export function BadgeProvider({ children, onOpenAwards, onXpChanged }: BadgeProviderProps) {
   const [earned, setEarned] = useState<EarnedBadge[]>([])
   const [loaded, setLoaded] = useState(false)
   const [queue, setQueue] = useState<BadgeId[]>([])
@@ -51,6 +53,7 @@ export function BadgeProvider({ children, onOpenAwards }: BadgeProviderProps) {
   useRealtimeEvent('badge_earned', (data) => {
     const badge = data as EarnedBadge
     if (!isBadgeId(badge.id)) return
+    onXpChanged()
     setEarned((previous) => previous.some((item) => item.id === badge.id) ? previous : [...previous, badge])
     enqueue([badge])
   })
