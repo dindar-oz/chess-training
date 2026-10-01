@@ -12,7 +12,7 @@ export function ChallengeHistory({ refreshKey, onOpen }: { refreshKey: string; o
   }, [refreshKey])
 
   return <section className="history-section challenge-history">
-    <div className="section-heading"><div><p className="section-label">PAST CHALLENGES</p><h2>Your challenge record.</h2></div></div>
+    <h2 className="centered-title">Past challenges</h2>
     {entries.length === 0 ? <div className="empty-library">No finished challenges yet.</div> : <div className="history-list">{entries.map((entry) => {
       const delta = entry.eloAfter !== null && entry.eloBefore !== null ? entry.eloAfter - entry.eloBefore : null
       return <button className="history-row history-button" key={entry.id} onClick={() => onOpen(entry.id)}>

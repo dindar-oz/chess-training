@@ -250,7 +250,6 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
       <header className="topbar">
         <div>
           <p className="eyebrow">REPLAY LAB / TRAINING</p>
-          <h1>Play the<br /><em>master line.</em></h1>
         </div>
         <div className="topbar-meta">
           <span className="live-dot" /> TRAINING MODE

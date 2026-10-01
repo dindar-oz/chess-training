@@ -15,7 +15,7 @@ export function AwardsView({ user, onNavigate, onLogout }: AwardsViewProps) {
   const { earned, loaded } = useBadges()
   const earnedById = new Map(earned.map((badge) => [badge.id, badge]))
   return <main className="app-shell awards-screen">
-    <PageHeader eyebrow="REPLAY LAB / AWARDS" title={<>Badges<br /><em>you've earned.</em></>} user={user} onLogout={onLogout} />
+    <PageHeader eyebrow="REPLAY LAB / AWARDS" user={user} onLogout={onLogout} />
     <MainNav view="awards" isAdmin={user.role === 'admin'} onNavigate={onNavigate} />
     {loaded && <p className="badge-progress">{earned.length} of {badgeDefinitions.length} badges earned</p>}
     <section className="badge-grid">

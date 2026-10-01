@@ -109,7 +109,7 @@ export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLog
   const adminCount = users.filter((entry) => entry.role === 'admin').length
 
   return <main className="app-shell admin-screen">
-    <PageHeader eyebrow="REPLAY LAB / ADMIN" title={<>Run the<br /><em>club.</em></>} user={user} onLogout={onLogout} meta={<>{gameCount} GAMES <strong>{users.length} USERS</strong></>} />
+    <PageHeader eyebrow="REPLAY LAB / ADMIN" user={user} onLogout={onLogout} meta={<>{gameCount} GAMES <strong>{users.length} USERS</strong></>} />
     <MainNav view="admin" isAdmin onNavigate={onNavigate} />
     <section className="stats-summary admin-summary"><div><span>USERS</span><strong>{users.length}</strong></div><div><span>ACTIVE</span><strong>{activeCount}</strong></div><div><span>DISABLED</span><strong>{users.length - activeCount}</strong></div><div><span>ADMINS</span><strong>{adminCount}</strong></div><div><span>GAMES</span><strong>{gameCount}</strong></div></section>
     {(resetRequests.length > 0 || resetLink) && <section className="history-section reset-section">

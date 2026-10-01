@@ -5,7 +5,8 @@ import type { AuthUser } from '../types'
 
 type PageHeaderProps = {
   eyebrow: string
-  title: ReactNode
+  // The big title; only the home page has one.
+  title?: ReactNode
   user: AuthUser
   onLogout: () => void
   // Replaces the default ELO/XP meta shown next to the live dot.
@@ -18,7 +19,7 @@ export function PageHeader({ eyebrow, title, user, onLogout, meta, subtitle }: P
   const { connected, onlineUsers } = useRealtime()
   const onlineNames = onlineUsers.map((onlineUser) => onlineUser.username).join(', ')
   return <header className="topbar library-topbar">
-    <div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{subtitle}</div>
+    <div className="brand-heading"><div className="brand-lockup"><span className="brand-mark" aria-hidden="true">♞</span><span>Replay Lab</span></div><p className="eyebrow">{eyebrow}</p>{title && <h1>{title}</h1>}{subtitle}</div>
     <div className="topbar-meta"><span className={`live-dot ${connected ? 'connected' : ''}`} title={connected ? 'Live' : 'Reconnecting...'} /> {meta ?? <>{user.elo} ELO <strong>{user.xp} XP</strong></>}<strong className="online-count" title={onlineNames}>{connected ? `${onlineUsers.length} ONLINE` : 'OFFLINE'}</strong><SoundToggle /><button className="header-link" onClick={onLogout}>{user.username} · Log out</button></div>
   </header>
 }

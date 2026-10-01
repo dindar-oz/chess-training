@@ -42,7 +42,7 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
     body = <>
       <LobbyPanel challenge={snapshot} userId={user.id} />
       <section className="history-section waiting-lobby">
-        <div className="section-heading"><div><p className="section-label">LOBBY</p><h2>Other open challenges.</h2></div></div>
+        <h2 className="centered-title">Lobby</h2>
         <OpenChallengeList userId={user.id} />
       </section>
     </>
@@ -55,7 +55,7 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
     body = <>
       <section className="challenge-lobby">
         <div className="challenge-lobby-list">
-          <div className="section-heading"><div><p className="section-label">LOBBY</p><h2>Open challenges.</h2></div></div>
+          <h2 className="centered-title">Lobby</h2>
           <OpenChallengeList userId={user.id} />
         </div>
         <aside className="challenge-lobby-actions">
@@ -73,7 +73,7 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
   }
 
   return <main className="app-shell challenges-screen">
-    <PageHeader eyebrow="REPLAY LAB / CHALLENGES" title={<>Play them<br /><em>all at once.</em></>} user={user} onLogout={onLogout} />
+    <PageHeader eyebrow="REPLAY LAB / CHALLENGES" user={user} onLogout={onLogout} />
     <MainNav view="challenges" isAdmin={user.role === 'admin'} onNavigate={onNavigate} />
     {body}
   </main>

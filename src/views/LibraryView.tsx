@@ -55,7 +55,7 @@ export function LibraryView(props: LibraryViewProps) {
   }
 
   return <main className="app-shell library-screen">
-    <PageHeader eyebrow="REPLAY LAB / LIBRARY" title={<>Study the<br /><em>great games.</em></>} user={user} onLogout={props.onLogout} meta={<>{props.sessionCount} SESSIONS <strong>{user.elo} ELO</strong><strong>{user.xp} XP</strong></>} />
+    <PageHeader eyebrow="REPLAY LAB / LIBRARY" user={user} onLogout={props.onLogout} meta={<>{props.sessionCount} SESSIONS <strong>{user.elo} ELO</strong><strong>{user.xp} XP</strong></>} />
     <MainNav view="library" isAdmin={isAdmin} onNavigate={props.onNavigate} />
     <section className="library-toolbar">
       <div><p className="section-label">GAME DATABASE</p><h2>{filteredGames.length} games ready to study</h2></div>
