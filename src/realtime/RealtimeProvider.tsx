@@ -51,7 +51,9 @@ export function RealtimeProvider({ children, onSessionEnded }: RealtimeProviderP
         if (message.type === 'presence') setOnlineUsers((message.data as { users: OnlineUser[] }).users)
         if (message.type === 'hello') {
           const { build } = message.data as { build: string | null }
-          if (build && build !== __APP_BUILD__) setUpdateAvailable(true)
+          // The dev server has its own build id and hot-reloads instead, so a
+          // dist/ left over from a build mustn't make every page reload.
+          if (build && build !== __APP_BUILD__ && !import.meta.env.DEV) setUpdateAvailable(true)
         }
         handlers.current.get(message.type)?.forEach((handler) => handler(message.data))
       }

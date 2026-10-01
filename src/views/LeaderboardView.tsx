@@ -26,7 +26,7 @@ export function LeaderboardView({ user, onNavigate, onLogout }: LeaderboardViewP
   }, [])
 
   return <main className="app-shell leaderboard-screen">
-    <PageHeader eyebrow="REPLAY LAB / LEADERBOARD" title={<>Top<br /><em>learners.</em></>} user={user} onLogout={onLogout} />
+    <PageHeader eyebrow="REPLAY LAB / LEADERBOARD" user={user} onLogout={onLogout} />
     <MainNav view="leaderboard" isAdmin={user.role === 'admin'} onNavigate={onNavigate} />
     <section className="library-toolbar leaderboard-toolbar">
       <div><p className="section-label">RANKING</p><h2>{sortKey === 'elo' ? 'By challenge rating' : 'By training XP'}</h2></div>

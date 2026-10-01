@@ -40,6 +40,7 @@ button { font: inherit; }
 .brand-mark { align-items: center; background: var(--green); color: var(--paper); display: inline-flex; font: 22px/1 'Georgia', serif; height: 31px; justify-content: center; transform: rotate(-4deg); width: 31px; }
 .eyebrow, .panel-heading, .section-label, .board-labels, .board-footer, .topbar-meta, .progress-row, .session-code { font: 500 11px/1.2 'DM Mono', monospace; letter-spacing: .12em; }
 .eyebrow { color: var(--green); margin: 0 0 18px; }
+.eyebrow:last-child { margin-bottom: 0; }
 h1 { color: var(--ink); font: 700 clamp(3rem, 7vw, 6.8rem)/.86 'Playfair Display', serif; letter-spacing: -.055em; margin: 0; }
 h1 em { color: var(--green); font-style: italic; }
 .topbar-meta { display: flex; flex-wrap: wrap; gap: 13px; align-items: center; justify-content: flex-end; color: var(--muted); padding-top: 9px; white-space: nowrap; }
@@ -378,7 +379,7 @@ h1 em { color: var(--green); font-style: italic; }
 
 /* Challenges */
 .challenge-lobby { align-items: start; border-top: 2px solid var(--ink); display: grid; gap: 50px; grid-template-columns: minmax(0, 1fr) 280px; margin-top: 52px; padding-top: 22px; }
-.challenge-lobby .section-heading { margin-bottom: 18px; }
+.centered-title { color: var(--ink); font: 700 clamp(1.7rem, 3.2vw, 2.4rem)/1.1 'Playfair Display', serif; letter-spacing: -.01em; margin: 0 0 22px; text-align: center; }
 .challenge-lobby-actions { display: grid; gap: 10px; }
 .challenge-lobby-actions .section-label { margin-bottom: 4px; }
 .challenge-lobby-actions .primary-button { justify-content: center; padding: 13px; }
