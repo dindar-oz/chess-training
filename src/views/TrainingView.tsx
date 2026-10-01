@@ -11,6 +11,7 @@ import { MainNav } from '../components/MainNav'
 import { SoundToggle } from '../components/SoundToggle'
 import { play } from '../sounds'
 import { TimeControlPicker } from '../components/TimeControlPicker'
+import { useClickToMove } from '../hooks/useClickToMove'
 import { useTrainingSession } from '../hooks/useTrainingSession'
 import { readStored, writeStored } from '../storage'
 import { formatTimeControl, isValidTimeControl } from '../timeControl'
@@ -79,6 +80,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
   const savedStatKey = useRef<string | null>(null)
   const [lastXpGained, setLastXpGained] = useState<number | null>(null)
   const engine = useMemo(() => new StockfishEngine(), [])
+  const clickToMove = useClickToMove(session.game.fen(), status === 'playing' && session.isUsersTurn, (from, to) => { session.handleMove(from, to) })
 
   const correctCount = records.filter((record) => record.correct).length
   const learnerAccuracy = analysisResults.length > 0
@@ -268,6 +270,8 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
                 onPieceDrop: ({ sourceSquare, targetSquare }) => session.handleMove(sourceSquare, targetSquare),
                 boardOrientation: side === 'w' ? 'white' : 'black',
                 allowDragging: status === 'playing' && session.isUsersTurn,
+                onSquareClick: clickToMove.onSquareClick,
+                squareStyles: clickToMove.squareStyles,
                 boardStyle: { borderRadius: '2px', boxShadow: '0 18px 50px rgba(18, 28, 35, .18)' },
               }}
             />
