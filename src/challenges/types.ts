@@ -57,7 +57,8 @@ export type ChallengeSnapshot = {
     inviteStatus: InviteStatus
     playStatus: PlayStatus | null
     clock: ClockView
-    position: { ply: number; fen: string; moveNumber: number; previousSan: string | null } | null
+    // previousUci: the move that led here, for the last-move highlight.
+    position: { ply: number; fen: string; moveNumber: number; previousSan: string | null; previousUci: string | null } | null
     moves: Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean }>
     analysisSubmitted: boolean
   } | null
