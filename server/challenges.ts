@@ -286,7 +286,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
   let position = null
   if (game && me?.play_status === 'playing' && me.next_ply !== null) {
     const move = game.moves[me.next_ply]
-    position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null }
+    position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null, previousUci: me.next_ply > 0 ? game.moves[me.next_ply - 1].lan : null }
   }
   // A player's own moves include the position and UCI moves so their browser can
   // analyze them; nobody receives anyone else's moves.

@@ -6,7 +6,8 @@ import { ChessClock } from '../components/ChessClock'
 import { moveSound, play } from '../sounds'
 import { formatClock } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
-import { useClickToMove } from '../hooks/useClickToMove'
+import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
+import type { LastMove } from '../hooks/useClickToMove'
 import { useChallenges } from './context'
 import { liveRemainingMs } from './types'
 import type { PlayStatus, ReceivedSnapshot } from './types'
@@ -29,6 +30,8 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
   const [pendingFen, setPendingFen] = useState<string | null>(null)
   const [correction, setCorrection] = useState<{ fen: string; expected: string } | null>(null)
   const [lastFen, setLastFen] = useState<string | null>(null)
+  // Your own last move, shown while it is pending or being corrected.
+  const [myLastMove, setMyLastMove] = useState<LastMove | null>(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const correctionTimer = useRef<number | undefined>(undefined)
@@ -88,7 +91,9 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
     play('lowTime')
   }, [lowTime])
 
-  const clickToMove = useClickToMove(boardFen, canMove, (from, to) => { handleDrop(from, to) })
+  // Once you finish, the board shows the position before your last move, so nothing is highlighted.
+  const lastMove = pendingFen !== null || correction !== null ? myLastMove : lastMoveFromUci(position?.previousUci)
+  const clickToMove = useClickToMove(boardFen, canMove, (from, to) => { handleDrop(from, to) }, lastMove)
 
   function handleDrop(sourceSquare: string, targetSquare: string | null) {
     if (!canMove || !position || !targetSquare) return false
@@ -100,6 +105,7 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
       return false
     }
     setPendingFen(board.fen())
+    setMyLastMove({ from: attempted.from, to: attempted.to })
     setError('')
     play(moveSound(attempted.san))
     void move(position.ply, attempted.lan)
