@@ -2,6 +2,7 @@ import { useRealtime } from '../realtime/context'
 import { useChallenges } from './context'
 import { formatClock, formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
+import { ChallengeReview } from './ChallengeReview'
 import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
 import { useNow } from './useNow'
@@ -89,7 +90,9 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
       <p className="results-note">Finishers rank above players who ran out of time or resigned. Otherwise higher accuracy wins, and accuracies within 1% count as a draw.</p>
     </>}
 
-    {challenge.me && challenge.me.moves.length > 0 && <div className="move-log results-moves"><p className="section-label">YOUR MOVES</p>{challenge.me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>}
+    {challenge.me && challenge.me.moves.length > 0 && challenge.side && challenge.status !== 'analyzing'
+      ? <ChallengeReview moves={challenge.me.moves} side={challenge.side} depth={challenge.depth} />
+      : challenge.me && challenge.me.moves.length > 0 && <div className="move-log results-moves"><p className="section-label">YOUR MOVES</p>{challenge.me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>}
     {showChat && <ChallengeChat userId={userId} />}
     {challenge.status !== 'analyzing' && <button className="primary-button results-close" onClick={onClose}>{closeLabel}</button>}
   </section>

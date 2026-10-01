@@ -5,7 +5,7 @@ import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
 import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
-import { analysisBadgesFor, currentStreak, streakBadgesFor } from '../shared/badges.ts'
+import { analysisBadgesFor, currentStreak, moveMark, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { awardBadge } from './badges.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
@@ -323,10 +323,15 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null, previousUci: me.next_ply > 0 ? game.moves[me.next_ply - 1].lan : null }
   }
   // A player's own moves include the position and UCI moves so their browser can
-  // analyze them; nobody receives anyone else's moves.
+  // analyze them, and their ?/??/! marks once analyzed; nobody receives anyone
+  // else's moves.
   const myMoves = me
-    ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number }>)
-      .map((move) => ({ ...move, correct: move.correct === 1 }))
+    ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct, best_score, attempted_score, second_score, best_uci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number; best_score: number | null; attempted_score: number | null; second_score: number | null; best_uci: string | null }>)
+      .map(({ best_score, attempted_score, second_score, best_uci, ...move }) => ({
+        ...move,
+        correct: move.correct === 1,
+        mark: moveMark({ best: best_score, attempted: attempted_score, second: second_score, playedBest: best_uci !== null && best_uci === move.attemptedUci }),
+      }))
     : []
   return {
     id: challenge.id,

@@ -175,6 +175,21 @@ function chanceDrop(from: number, to: number) {
   return winningChances(from) - winningChances(to)
 }
 
+export type MoveMark = '!' | '?' | '??'
+
+// How a reviewed move is annotated: a blunder (??) or mistake (?) by the winning
+// chance it lost against the engine's best move, or an only move (!), which needs
+// the second-best score and so only appears at badge depth. Null when the move
+// is none of these or wasn't scored.
+export function moveMark(move: Pick<ReviewedMove, 'best' | 'attempted' | 'second' | 'playedBest'>): MoveMark | null {
+  if (move.best === null || move.attempted === null) return null
+  const drop = chanceDrop(move.best, move.attempted)
+  if (drop >= blunderDrop) return '??'
+  if (drop >= mistakeDrop) return '?'
+  if (move.playedBest && move.second !== null && chanceDrop(move.best, move.second) >= onlyMoveGap) return '!'
+  return null
+}
+
 // The engine badges one player's reviewed challenge earns. `finished` means the
 // player played every move on time (not a time-out or resignation).
 export function analysisBadgesFor(review: { depth: number; finished: boolean; moves: ReviewedMove[] }): BadgeId[] {

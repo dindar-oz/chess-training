@@ -1,3 +1,4 @@
+import type { MoveMark } from '../../shared/badges.ts'
 import type { TimeControl } from '../timeControl'
 import type { Side } from '../types'
 
@@ -61,7 +62,8 @@ export type ChallengeSnapshot = {
     clock: ClockView
     // previousUci: the move that led here, for the last-move highlight.
     position: { ply: number; fen: string; moveNumber: number; previousSan: string | null; previousUci: string | null } | null
-    moves: Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean }>
+    // mark: ?, ?? or ! once the move has been analyzed (see moveMark).
+    moves: Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean; mark: MoveMark | null }>
     analysisSubmitted: boolean
   } | null
 }

@@ -31,6 +31,11 @@ let sharedQueue: Promise<unknown> = Promise.resolve()
 // the move the engine would play.
 type SearchResult = { lines: Array<EngineScore | undefined>; bestUci: string | null }
 
+// A principal line: its score for the side to move and its moves in UCI.
+export type EngineLine = { score: EngineScore; pv: string[] }
+// Progress of a live search: the deepest depth reached so far, best line first.
+export type LiveAnalysis = { depth: number; lines: EngineLine[]; done: boolean }
+
 // Results are cached by depth, position and move, so searches run in the
 // background during a session are reused instantly by the end-of-game review.
 // A prefetch is skipped when its turn comes if it has gone stale (the session
@@ -170,6 +175,47 @@ export class ClientStockfishEngine {
       originalCpl: Math.max(0, bestValue - originalValue),
       attemptedCpl: Math.max(0, bestValue - attemptedValue),
       relativeToOriginal: attemptedValue - originalValue,
+    }
+  }
+
+  // Streams the best `multipv` lines of a position as the search deepens, up to
+  // `depth`, for browsing a finished challenge. It waits its turn in the shared
+  // queue; the returned function cancels it, stopping the search if it runs.
+  analyzeLive(fen: string, depth: number, multipv: number, onUpdate: (update: LiveAnalysis) => void) {
+    let cancelled = false
+    let running = false
+    const run = sharedQueue.then(() => cancelled ? undefined : this.ready.then(() => new Promise<void>((resolve) => {
+      running = true
+      const lines: EngineLine[] = []
+      let reached = 0
+      const onMessage = (event: MessageEvent<string>) => {
+        const line = event.data
+        // Bound scores are provisional; the exact one follows.
+        if (line.startsWith('info') && !/ (lower|upper)bound/.test(line)) {
+          const score = parseScore(line)
+          const pv = line.match(/ pv (.+)$/)?.[1].trim().split(' ')
+          if (score && pv && !cancelled) {
+            lines[Number(line.match(/ multipv (\d+)/)?.[1] ?? 1) - 1] = { score, pv }
+            reached = Math.max(reached, Number(line.match(/ depth (\d+)/)?.[1] ?? 0))
+            onUpdate({ depth: reached, lines: lines.filter(Boolean), done: false })
+          }
+        }
+        if (line.startsWith('bestmove')) {
+          this.worker.removeEventListener('message', onMessage)
+          running = false
+          if (!cancelled) onUpdate({ depth: reached, lines: lines.filter(Boolean), done: true })
+          resolve()
+        }
+      }
+      this.worker.addEventListener('message', onMessage)
+      this.worker.postMessage(`setoption name MultiPV value ${multipv}`)
+      this.worker.postMessage(`position fen ${fen}`)
+      this.worker.postMessage(`go depth ${depth}`)
+    })))
+    sharedQueue = run.catch(() => undefined)
+    return () => {
+      cancelled = true
+      if (running) this.worker.postMessage('stop')
     }
   }
 
