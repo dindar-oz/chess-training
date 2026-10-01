@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { Chess } from 'chess.js'
 import type { Square } from 'chess.js'
 
-const lastMoveStyle: CSSProperties = { background: 'rgba(205, 210, 106, .55)' }
+export const lastMoveStyle: CSSProperties = { background: 'rgba(205, 210, 106, .55)' }
 const selectedStyle: CSSProperties = { background: 'rgba(212, 138, 54, .55)' }
 const targetStyle: CSSProperties = { background: 'radial-gradient(circle, rgba(24, 36, 42, .32) 22%, transparent 24%)', cursor: 'pointer' }
 const captureStyle: CSSProperties = { background: 'radial-gradient(circle, transparent 62%, rgba(24, 36, 42, .32) 64%)', cursor: 'pointer' }

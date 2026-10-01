@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { winningChances } from './accuracy.ts'
-import { analysisBadgesFor, badgeDefinitions, badgeXp, currentStreak, isBadgeId, longestStreak, streakBadgesFor } from './badges.ts'
+import { analysisBadgesFor, badgeDefinitions, badgeXp, currentStreak, isBadgeId, longestStreak, moveMark, streakBadgesFor } from './badges.ts'
 import type { ReviewedMove } from './badges.ts'
 
 test('current streak counts only the trailing run of correct moves', () => {
@@ -100,4 +100,18 @@ test('only moves count when the player found the best move and the rest lose', (
   assert.deepEqual(badges([onlyMove, onlyMove, move()]), [])
   assert.deepEqual(badges([onlyMove, onlyMove, { ...onlyMove, playedBest: false }]), [])
   assert.deepEqual(badges([onlyMove, onlyMove, { ...onlyMove, second: null }]), [])
+})
+
+test('moves are marked as blunders, mistakes and only moves like the badges judge them', () => {
+  const move = { best: 50, attempted: 50, second: null, playedBest: false }
+  assert.equal(moveMark(move), null)
+  // 0.2 and 0.3 of winning chance lost from an equal position.
+  assert.equal(moveMark({ ...move, best: 0, attempted: -120 }), '?')
+  assert.equal(moveMark({ ...move, best: 0, attempted: -170 }), '??')
+  // Dropping from +9 to +6 in a won position is neither.
+  assert.equal(moveMark({ ...move, best: 900, attempted: 600 }), null)
+  assert.equal(moveMark({ ...move, playedBest: true, second: -150 }), '!')
+  assert.equal(moveMark({ ...move, playedBest: false, second: -150 }), null)
+  // Unscored moves (older pages) get no mark.
+  assert.equal(moveMark({ ...move, best: null }), null)
 })
