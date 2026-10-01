@@ -4,15 +4,20 @@ import type { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
-import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, minDepth, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
 import { analysisBadgesFor, currentStreak, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { awardBadge } from './badges.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
-import { isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
+import { broadcast, isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
 
 // Challenge lifecycle: lobby -> playing -> analyzing -> complete, with cancelled
 // (from lobby) and void (analysis never delivered) as dead ends.
+//
+// Players get into a challenge's lobby (the waiting room) in one of two ways: the
+// creator invites online players, or the creator opens it with a number of seats
+// and anyone joins from the open-challenge list until it is full. Either way the
+// creator starts it.
 //
 // The server keeps each player's Fischer clock and never sends the game's moves or
 // identity to clients before the challenge completes: a player only ever receives
@@ -23,7 +28,7 @@ import { isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
 type ChallengeUser = { id: string; username: string; elo: number }
 type AwardXp = (userId: string, sessionId: string, correctMoves: number, deviations: number, attemptedMoves: number, completed: boolean) => unknown
 type ChallengeStatus = 'lobby' | 'playing' | 'analyzing' | 'complete' | 'cancelled' | 'void'
-type InviteStatus = 'creator' | 'invited' | 'accepted' | 'declined' | 'left' | 'expired'
+type InviteStatus = 'creator' | 'invited' | 'accepted' | 'declined' | 'left' | 'expired' | 'kicked'
 type PlayStatus = 'playing' | 'finished' | 'timed_out' | 'resigned'
 type Side = 'w' | 'b'
 
@@ -51,6 +56,8 @@ type ChallengeRow = {
   finished_at: number | null
   completed_at: string | null
   chat_muted: number
+  // Seats (host included) of an open challenge; null for an invitation challenge.
+  max_players: number | null
 }
 
 type PlayerRow = {
@@ -191,6 +198,7 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
     'ALTER TABLE challenge_moves ADD COLUMN original_score REAL',
     'ALTER TABLE challenge_moves ADD COLUMN second_score REAL',
     'ALTER TABLE challenge_moves ADD COLUMN best_uci TEXT',
+    'ALTER TABLE challenges ADD COLUMN max_players INTEGER',
   ]) {
     try {
       database.exec(migration)
@@ -243,6 +251,32 @@ function isBusy(userId: string) {
     LIMIT 1
   `).get(userId, userId)
   return row !== undefined
+}
+
+// A player is in one challenge at a time, but someone still in a waiting room may
+// move on: joining or accepting another challenge takes them out of the old one.
+// Only a game in progress (or the creator's analysis) holds them.
+function isLockedIn(userId: string) {
+  const row = database.prepare(`
+    SELECT 1 FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
+    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
+      AND (challenges.status = 'playing' OR (challenges.status = 'analyzing' AND challenges.creator_id = ?))
+    LIMIT 1
+  `).get(userId, userId)
+  return row !== undefined
+}
+
+// A host who moves on cancels their challenge; anyone else just leaves it.
+function leaveWaitingRooms(userId: string) {
+  const rows = database.prepare(`
+    SELECT challenges.id, challenges.creator_id AS creatorId, challenge_players.id AS playerId FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
+    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status = 'lobby'
+  `).all(userId) as Array<{ id: string; creatorId: string | null; playerId: string }>
+  for (const row of rows) {
+    if (row.creatorId === userId) setStatus(row.id, 'cancelled')
+    else database.prepare("UPDATE challenge_players SET invite_status = 'left' WHERE id = ?").run(row.playerId)
+    publish(row.id)
+  }
 }
 
 function parsedGame(challenge: ChallengeRow): ParsedGame {
@@ -307,6 +341,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     depth: challenge.depth,
     createdAt: challenge.created_at,
     chatMuted: challenge.chat_muted === 1,
+    maxPlayers: challenge.max_players,
     startsInMs: challenge.starts_at === null ? null : challenge.starts_at - now,
     totalMoves,
     game: revealed && challenge.game_id
@@ -344,6 +379,28 @@ function publish(challengeId: string) {
   for (const player of getPlayers(challengeId)) {
     if (player.user_id) sendToUser(player.user_id, 'challenge_update', snapshot(challenge, player.user_id))
   }
+  // Seats, starts and cancellations of open challenges change everyone's list.
+  if (challenge.max_players !== null) broadcast('open_challenges', openChallenges())
+}
+
+function seatedCount(challengeId: string) {
+  const { count } = database.prepare("SELECT COUNT(*) AS count FROM challenge_players WHERE challenge_id = ? AND invite_status IN ('creator', 'accepted')").get(challengeId) as { count: number }
+  return count
+}
+
+// Open challenges still waiting in their lobby, oldest first. The list is the same
+// for everyone; the server checks again when someone joins.
+function openChallenges() {
+  return (database.prepare(`
+    SELECT challenges.id, challenges.creator_id AS creatorId, challenges.creator_name AS creatorName, users.elo AS creatorElo,
+      challenges.side_choice AS sideChoice, challenges.base_seconds AS baseSeconds, challenges.increment_seconds AS incrementSeconds,
+      challenges.depth, challenges.max_players AS maxPlayers, challenges.created_at AS createdAt,
+      (SELECT COUNT(*) FROM challenge_players WHERE challenge_players.challenge_id = challenges.id AND challenge_players.invite_status IN ('creator', 'accepted')) AS players
+    FROM challenges LEFT JOIN users ON users.id = challenges.creator_id
+    WHERE challenges.status = 'lobby' AND challenges.max_players IS NOT NULL
+    ORDER BY challenges.created_at
+  `).all() as Array<{ id: string; creatorId: string | null; creatorName: string; creatorElo: number | null; sideChoice: Side | 'random'; baseSeconds: number; incrementSeconds: number; depth: number; maxPlayers: number; createdAt: string; players: number }>)
+    .map(({ baseSeconds, incrementSeconds, ...rest }) => ({ ...rest, timeControl: { baseSeconds, incrementSeconds } }))
 }
 
 // ---------- clocks ----------
@@ -430,8 +487,12 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
   if (typeof incrementSeconds !== 'number' || !Number.isInteger(incrementSeconds) || incrementSeconds < 0 || incrementSeconds > 60) throw new RequestError(400, 'Increment must be 0-60 seconds.')
   const depth = body.depth
   if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < minDepth || depth > maxDepth) throw new RequestError(400, `Depth must be ${minDepth}-${maxDepth}.`)
-  const inviteeIds = Array.isArray(body.inviteeIds) ? [...new Set(body.inviteeIds.filter((id): id is string => typeof id === 'string'))] : []
-  if (inviteeIds.length === 0) throw new RequestError(400, 'Invite at least one player.')
+  // Pages from before open challenges send no kind and always invite.
+  const open = body.kind === 'open'
+  const maxPlayers = open ? body.maxPlayers : null
+  if (open && (typeof maxPlayers !== 'number' || !Number.isInteger(maxPlayers) || maxPlayers < minOpenPlayers || maxPlayers > maxOpenPlayers)) throw new RequestError(400, `An open challenge has ${minOpenPlayers}-${maxOpenPlayers} players.`)
+  const inviteeIds = !open && Array.isArray(body.inviteeIds) ? [...new Set(body.inviteeIds.filter((id): id is string => typeof id === 'string'))] : []
+  if (!open && inviteeIds.length === 0) throw new RequestError(400, 'Invite at least one player.')
   if (inviteeIds.length > maxInvitees) throw new RequestError(400, `You can invite at most ${maxInvitees} players.`)
   if (inviteeIds.includes(user.id)) throw new RequestError(400, 'You are already in your own challenge.')
   if (isBusy(user.id)) throw new RequestError(409, 'Finish or leave your current challenge first.')
@@ -440,13 +501,13 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
 
   const invitees = inviteeIds.map((id) => database.prepare('SELECT id, username FROM users WHERE id = ? AND disabled_at IS NULL').get(id) as { id: string; username: string } | undefined)
   if (invitees.some((invitee) => !invitee)) throw new RequestError(400, 'One of the invited players no longer exists.')
-  const unavailable = invitees.filter((invitee) => !isOnline(invitee!.id) || isBusy(invitee!.id)).map((invitee) => invitee!.username)
+  const unavailable = invitees.filter((invitee) => !isOnline(invitee!.id) || isLockedIn(invitee!.id)).map((invitee) => invitee!.username)
   if (unavailable.length > 0) throw new RequestError(409, `Not available right now: ${unavailable.join(', ')}.`)
 
   const challengeId = randomUUID()
   withTransaction(() => {
-    database.prepare("INSERT INTO challenges (id, creator_id, creator_name, side_choice, base_seconds, increment_seconds, depth, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'lobby', ?)")
-      .run(challengeId, user.id, user.username, sideChoice, baseSeconds, incrementSeconds, depth, new Date().toISOString())
+    database.prepare("INSERT INTO challenges (id, creator_id, creator_name, side_choice, base_seconds, increment_seconds, depth, status, created_at, max_players) VALUES (?, ?, ?, ?, ?, ?, ?, 'lobby', ?, ?)")
+      .run(challengeId, user.id, user.username, sideChoice, baseSeconds, incrementSeconds, depth, new Date().toISOString(), maxPlayers as number | null)
     const insertPlayer = database.prepare('INSERT INTO challenge_players (id, challenge_id, user_id, username, invite_status) VALUES (?, ?, ?, ?, ?)')
     insertPlayer.run(randomUUID(), challengeId, user.id, user.username, 'creator')
     for (const invitee of invitees) insertPlayer.run(randomUUID(), challengeId, invitee!.id, invitee!.username, 'invited')
@@ -458,8 +519,32 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
 function respond(challenge: ChallengeRow, user: ChallengeUser, accept: boolean) {
   const player = playerFor(challenge.id, user.id)
   if (challenge.status !== 'lobby' || player?.invite_status !== 'invited') throw new RequestError(409, 'This invitation is no longer open.')
-  if (accept && isBusy(user.id)) throw new RequestError(409, 'Finish or leave your current challenge first.')
+  if (accept && isLockedIn(user.id)) throw new RequestError(409, 'Finish your current challenge first.')
+  if (accept) leaveWaitingRooms(user.id)
   database.prepare('UPDATE challenge_players SET invite_status = ? WHERE id = ?').run(accept ? 'accepted' : 'declined', player.id)
+  publish(challenge.id)
+}
+
+function join(challenge: ChallengeRow, user: ChallengeUser) {
+  if (challenge.max_players === null) throw new RequestError(404, 'Challenge not found.')
+  if (challenge.status !== 'lobby') throw new RequestError(409, 'This challenge has already started.')
+  const player = playerFor(challenge.id, user.id)
+  if (player && isParticipant(player)) return
+  if (player?.invite_status === 'kicked') throw new RequestError(403, 'The host removed you from this challenge.')
+  if (isLockedIn(user.id)) throw new RequestError(409, 'Finish your current challenge first.')
+  if (seatedCount(challenge.id) >= challenge.max_players) throw new RequestError(409, 'This challenge is full.')
+  leaveWaitingRooms(user.id)
+  // Someone who left earlier keeps their row and takes a seat again.
+  if (player) database.prepare("UPDATE challenge_players SET invite_status = 'accepted' WHERE id = ?").run(player.id)
+  else database.prepare("INSERT INTO challenge_players (id, challenge_id, user_id, username, invite_status) VALUES (?, ?, ?, ?, 'accepted')").run(randomUUID(), challenge.id, user.id, user.username)
+  publish(challenge.id)
+}
+
+function kick(challenge: ChallengeRow, user: ChallengeUser, body: Record<string, unknown>) {
+  if (challenge.creator_id !== user.id || challenge.status !== 'lobby') throw new RequestError(409, 'Only the host can remove players before the start.')
+  const target = typeof body.playerId === 'string' ? getPlayer(body.playerId) : undefined
+  if (!target || target.challenge_id !== challenge.id || target.invite_status !== 'accepted') throw new RequestError(404, 'That player is not in the challenge.')
+  database.prepare("UPDATE challenge_players SET invite_status = 'kicked' WHERE id = ?").run(target.id)
   publish(challenge.id)
 }
 
@@ -474,7 +559,7 @@ function startChallenge(challenge: ChallengeRow, user: ChallengeUser) {
   if (challenge.creator_id !== user.id) throw new RequestError(403, 'Only the creator can start the challenge.')
   if (challenge.status !== 'lobby') throw new RequestError(409, 'The challenge has already started.')
   const players = getPlayers(challenge.id)
-  if (!players.some((player) => player.invite_status === 'accepted')) throw new RequestError(409, 'Wait until at least one invited player accepts.')
+  if (!players.some((player) => player.invite_status === 'accepted')) throw new RequestError(409, challenge.max_players === null ? 'Wait until at least one invited player accepts.' : 'Wait until at least one player joins.')
   const game = pickGame()
   if (!game) throw new RequestError(409, 'The game library is empty. An admin needs to import games first.')
   const side: Side = challenge.side_choice === 'random' ? (Math.random() < 0.5 ? 'w' : 'b') : challenge.side_choice
@@ -796,6 +881,10 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       sendJson(response, 200, history(user.id))
       return true
     }
+    if (request.method === 'GET' && url === '/api/challenges/open') {
+      sendJson(response, 200, openChallenges())
+      return true
+    }
     if (request.method === 'POST' && url === '/api/challenges') {
       if (!allowRequest(`challenge:create:${user.id}`, 20, 60 * 60 * 1000)) throw new RequestError(429, 'Too many challenges created. Please try again later.')
       const challengeId = createChallenge(user, await readJson(request))
@@ -823,6 +912,12 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
     const challenge = match ? getChallenge(match[1]) : undefined
     if (!match || !challenge) throw new RequestError(404, 'Challenge not found.')
     const action = match[2]
+    // Anyone may join an open challenge; every other route is for its players.
+    if (request.method === 'POST' && action === 'join') {
+      join(challenge, user)
+      sendJson(response, 200, snapshot(getChallenge(challenge.id)!, user.id))
+      return true
+    }
     if (!playerFor(challenge.id, user.id)) throw new RequestError(404, 'Challenge not found.')
 
     if (request.method === 'GET' && !action) {
@@ -844,6 +939,8 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       if (challenge.creator_id !== user.id || challenge.status !== 'lobby') throw new RequestError(409, 'Only the creator can cancel a challenge before it starts.')
       setStatus(challenge.id, 'cancelled')
       publish(challenge.id)
+    } else if (action === 'kick') {
+      kick(challenge, user, await readJson(request))
     } else if (action === 'leave') {
       const player = playerFor(challenge.id, user.id)!
       if (challenge.status !== 'lobby' || player.invite_status !== 'accepted') throw new RequestError(409, 'You can only leave a challenge before it starts.')

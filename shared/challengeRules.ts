@@ -6,6 +6,10 @@ export const correctionDelayMs = 1100
 // Countdown between the creator pressing Start and the clocks starting.
 export const startCountdownMs = 3000
 export const maxInvitees = 9
+// Seats in an open challenge, counting the host.
+export const minOpenPlayers = 2
+export const maxOpenPlayers = maxInvitees + 1
+export const defaultOpenPlayers = 4
 export const minDepth = 12
 export const maxDepth = 30
 export const defaultDepth = 16

@@ -23,6 +23,10 @@ export type ChallengeState = {
   dismissNotice: () => void
   create: (input: CreateChallengeInput) => Promise<void>
   respond: (challengeId: string, accept: boolean) => Promise<void>
+  // Takes a seat in an open challenge.
+  join: (challengeId: string) => Promise<void>
+  // Host only: removes a player before the start.
+  kick: (playerId: string) => Promise<void>
   start: () => Promise<void>
   cancel: () => Promise<void>
   leave: () => Promise<void>

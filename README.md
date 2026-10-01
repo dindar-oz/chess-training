@@ -66,7 +66,12 @@ Before choosing a side, pick a time control: Untimed (default), a preset such as
 
 ## Challenges
 
-Open **Challenges**, choose a side (White, Black or Random), a time control and the engine review depth, tick online players to invite, and send. Invitees get a pop-up on any screen and can accept or decline; the creator starts once at least one player has accepted (invitations still open at that moment expire).
+The **Challenges** page opens on the lobby, a live list of open challenges, with two buttons beside it for creating one. Both open a dialog where you choose a side (White, Black or Random), a time control and the engine review depth:
+
+- **Challenge by invitation**: tick online players to invite and send. Invitees get a pop-up on any screen and can accept or decline.
+- **Open challenge**: choose the maximum number of players (2-10, you included). The challenge appears in everyone's lobby, and anyone can join it with one click while a seat is free.
+
+Either way the creator starts once at least one player has accepted or joined (invitations still open at that moment expire), and can remove a player from the waiting room before the start; a removed player can't rejoin that challenge. A player is in one challenge at a time: someone in a waiting room who joins an open challenge or accepts an invitation is asked to confirm, then leaves their current challenge, and a host who does so cancels theirs. Players in a running game can't join another. The lobby stays visible below the waiting room for that purpose. Your past challenges are listed under the lobby.
 
 At the start the server picks a random game from the library (preferring games of 20+ plies). Everyone plays the same side with the same clock after a 3-second countdown. To keep it fair:
 

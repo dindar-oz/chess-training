@@ -12,14 +12,16 @@ const inviteLabels: Record<InviteStatus, string> = {
   declined: 'Declined',
   left: 'Left',
   expired: 'Expired',
+  kicked: 'Removed',
 }
 
 export function LobbyPanel({ challenge, userId }: { challenge: ChallengeSnapshot; userId: string }) {
-  const { start, cancel, leave } = useChallenges()
+  const { start, cancel, leave, kick } = useChallenges()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const isCreator = challenge.creatorId === userId
   const readyCount = challenge.players.filter((player) => player.inviteStatus === 'accepted').length
+  const isOpen = challenge.maxPlayers !== null
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
@@ -35,19 +37,24 @@ export function LobbyPanel({ challenge, userId }: { challenge: ChallengeSnapshot
 
   return <section className="history-section lobby">
     <div className="section-heading"><div><p className="section-label">WAITING ROOM</p><h2>{isCreator ? 'Your challenge' : `${challenge.creatorName}'s challenge`}</h2></div></div>
-    <div className="lobby-settings"><div><span>SIDE</span><strong>{sideLabel(challenge.sideChoice)}</strong></div><div><span>TIME CONTROL</span><strong>{formatTimeControl(challenge.timeControl)}</strong></div><div><span>REVIEW DEPTH</span><strong>{challenge.depth}</strong></div><div><span>GAME</span><strong>Picked at start</strong></div></div>
-    <div className="lobby-players">{challenge.players.map((player) => <div key={player.playerId} className={`lobby-player ${player.inviteStatus}`}>
+    <div className="lobby-settings"><div><span>SIDE</span><strong>{sideLabel(challenge.sideChoice)}</strong></div><div><span>TIME CONTROL</span><strong>{formatTimeControl(challenge.timeControl)}</strong></div><div><span>REVIEW DEPTH</span><strong>{challenge.depth}</strong></div>{isOpen ? <div><span>SEATS TAKEN</span><strong>{readyCount + 1}/{challenge.maxPlayers}</strong></div> : <div><span>GAME</span><strong>Picked at start</strong></div>}</div>
+    <div className={`lobby-players ${isCreator ? 'can-kick' : ''}`}>{challenge.players.map((player) => <div key={player.playerId} className={`lobby-player ${player.inviteStatus}`}>
       <span className={player.online ? 'online-dot' : 'offline-dot'} title={player.online ? 'Online' : 'Offline'} />
       <strong>{player.username}{player.userId === userId && ' (you)'}</strong>
       <span>{player.elo ?? '—'} ELO</span>
       <b>{inviteLabels[player.inviteStatus]}</b>
+      {isCreator && (player.inviteStatus === 'accepted'
+        ? <button className="text-button lobby-kick" disabled={busy} onClick={() => void run(() => kick(player.playerId))}>Remove</button>
+        : <span />)}
     </div>)}</div>
     {error && <p className="admin-error">{error}</p>}
     <div className="lobby-actions">
       {isCreator ? <>
         <button className="primary-button" disabled={busy || readyCount === 0} onClick={() => void run(start)}><span className="button-icon" aria-hidden="true">▶</span> Start with {readyCount + 1} players</button>
         <button className="text-button" disabled={busy} onClick={() => void run(cancel)}>Cancel challenge</button>
-        {readyCount === 0 && <p className="empty-log">Waiting for at least one player to accept. Invitations that are still open when you start will expire.</p>}
+        {readyCount === 0 && <p className="empty-log">{isOpen
+          ? 'Waiting for at least one player to join from the lobby. Your challenge stays listed there until you start it or every seat is taken.'
+          : 'Waiting for at least one player to accept. Invitations that are still open when you start will expire.'}</p>}
       </> : <>
         <p className="empty-log">Waiting for {challenge.creatorName} to start. A random game is picked at the start.</p>
         <button className="text-button" disabled={busy} onClick={() => void run(leave)}>Leave challenge</button>

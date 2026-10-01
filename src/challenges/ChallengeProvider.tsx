@@ -101,6 +101,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       }
     } else if (previous?.id === snapshot.id) {
       next = null
+      if (snapshot.me?.inviteStatus === 'kicked') setNotice(`${snapshot.creatorName} removed you from the challenge.`)
     }
     if (next?.snapshot.id === snapshot.id && previous?.id === snapshot.id) {
       if (previous.status === 'lobby' && snapshot.status === 'playing') callbacks.current.onChallengeStarted()
@@ -271,6 +272,8 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       dismissNotice: () => setNotice(null),
       create: async (input: CreateChallengeInput) => apply(await request<ChallengeSnapshot>('/api/challenges', input)),
       respond: async (id: string, accept: boolean) => apply(await request<ChallengeSnapshot>(`/api/challenges/${id}/respond`, { accept })),
+      join: async (id: string) => apply(await request<ChallengeSnapshot>(`/api/challenges/${id}/join`, {})),
+      kick: async (playerId: string) => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/kick`, { playerId })),
       start: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/start`, {})),
       cancel: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/cancel`, {})),
       leave: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/leave`, {})),

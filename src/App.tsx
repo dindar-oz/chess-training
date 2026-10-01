@@ -193,7 +193,7 @@ function App() {
         {page}
         {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
         <UpdateBanner view={view} trainingOpened={trainingKey > 0} />
-        <InvitationToasts onAccepted={() => setView('challenges')} />
+        <InvitationToasts userId={authUser.id} onAccepted={() => setView('challenges')} />
         {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
       </BadgeProvider>
     </ChallengeProvider>

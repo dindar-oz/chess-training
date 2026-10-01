@@ -2,7 +2,7 @@ import type { TimeControl } from '../timeControl'
 import type { Side } from '../types'
 
 export type ChallengeStatus = 'lobby' | 'playing' | 'analyzing' | 'complete' | 'cancelled' | 'void'
-export type InviteStatus = 'creator' | 'invited' | 'accepted' | 'declined' | 'left' | 'expired'
+export type InviteStatus = 'creator' | 'invited' | 'accepted' | 'declined' | 'left' | 'expired' | 'kicked'
 export type PlayStatus = 'playing' | 'finished' | 'timed_out' | 'resigned'
 
 // Clock state as of when the snapshot left the server; see liveRemainingMs.
@@ -45,6 +45,8 @@ export type ChallengeSnapshot = {
   createdAt: string
   // The host muted the chat for everyone.
   chatMuted: boolean
+  // Seats (host included) of an open challenge; null when players were invited.
+  maxPlayers: number | null
   startsInMs: number | null
   totalMoves: number | null
   // Only the ply count until the challenge completes; the full game afterwards.
@@ -91,12 +93,26 @@ export type ChatMessage = {
   createdAt: string
 }
 
+// An open challenge waiting for players, as listed in the lobby.
+export type OpenChallenge = {
+  id: string
+  creatorId: string | null
+  creatorName: string
+  creatorElo: number | null
+  sideChoice: Side | 'random'
+  timeControl: TimeControl
+  depth: number
+  maxPlayers: number
+  // Seated players, host included.
+  players: number
+  createdAt: string
+}
+
 export type CreateChallengeInput = {
   side: Side | 'random'
   timeControl: TimeControl
   depth: number
-  inviteeIds: string[]
-}
+} & ({ kind: 'invite'; inviteeIds: string[] } | { kind: 'open'; maxPlayers: number })
 
 export function liveRemainingMs(clock: ClockView, receivedAt: number, now: number) {
   if (clock.remainingMs === null) return null
@@ -111,4 +127,13 @@ export function sideLabel(side: Side | 'random') {
 
 export function isParticipant(snapshot: ChallengeSnapshot) {
   return snapshot.me?.inviteStatus === 'creator' || snapshot.me?.inviteStatus === 'accepted'
+}
+
+// Joining or accepting another challenge takes a player out of the waiting room
+// they are in (a host's challenge is cancelled), so they are asked first.
+export function confirmLeavingWaitingRoom(current: ChallengeSnapshot | undefined, userId: string) {
+  if (!current || current.status !== 'lobby' || !isParticipant(current)) return true
+  return window.confirm(current.creatorId === userId
+    ? 'This cancels your own challenge. Continue?'
+    : `This takes you out of ${current.creatorName}'s challenge. Continue?`)
 }

@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { formatTimeControl } from '../timeControl'
 import { useChallenges } from './context'
-import { sideLabel } from './types'
+import { confirmLeavingWaitingRoom, sideLabel } from './types'
 
 // Invitations float over every screen so nobody misses one while training.
-export function InvitationToasts({ onAccepted }: { onAccepted: () => void }) {
-  const { invitations, respond, notice, dismissNotice } = useChallenges()
+export function InvitationToasts({ userId, onAccepted }: { userId: string; onAccepted: () => void }) {
+  const { current, invitations, respond, notice, dismissNotice } = useChallenges()
   const [busyId, setBusyId] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   async function answer(challengeId: string, accept: boolean) {
+    if (accept && !confirmLeavingWaitingRoom(current?.snapshot, userId)) return
     setBusyId(challengeId)
     try {
       await respond(challengeId, accept)
