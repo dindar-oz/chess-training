@@ -133,7 +133,7 @@ h1 em { color: var(--green); font-style: italic; }
 }
 
 .library-toolbar { align-items: end; display: flex; justify-content: space-between; padding: 52px 0 26px; }
-.library-toolbar h2, .section-heading h2 { color: var(--ink); font: 600 clamp(1.45rem, 3vw, 2.3rem)/1.05 'Playfair Display', serif; margin: 0; }
+.library-toolbar h2, .section-heading h2 { color: var(--ink); font: 600 clamp(1.15rem, 1.8vw, 1.45rem)/1.15 'Playfair Display', serif; margin: 0; }
 .library-controls { align-items: end; display: flex; flex-direction: column; gap: 13px; }
 .library-controls input { background: transparent; border: 0; border-bottom: 1px solid var(--ink); color: var(--ink); font: 13px 'DM Sans', sans-serif; outline: 0; padding: 8px 0; width: 245px; }
 .filter-group { display: flex; gap: 6px; }
@@ -379,7 +379,7 @@ h1 em { color: var(--green); font-style: italic; }
 
 /* Challenges */
 .challenge-lobby { align-items: start; border-top: 2px solid var(--ink); display: grid; gap: 50px; grid-template-columns: minmax(0, 1fr) 280px; margin-top: 52px; padding-top: 22px; }
-.centered-title { color: var(--ink); font: 700 clamp(1.7rem, 3.2vw, 2.4rem)/1.1 'Playfair Display', serif; letter-spacing: -.01em; margin: 0 0 22px; text-align: center; }
+.centered-title { color: var(--ink); font: 700 clamp(1.25rem, 2vw, 1.55rem)/1.15 'Playfair Display', serif; margin: 0 0 18px; text-align: center; }
 .challenge-lobby-actions { display: grid; gap: 10px; }
 .challenge-lobby-actions .section-label { margin-bottom: 4px; }
 .challenge-lobby-actions .primary-button { justify-content: center; padding: 13px; }
