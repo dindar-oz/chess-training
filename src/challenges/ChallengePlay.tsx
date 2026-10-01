@@ -6,6 +6,7 @@ import { ChessClock } from '../components/ChessClock'
 import { moveSound, play } from '../sounds'
 import { formatClock } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
+import { useClickToMove } from '../hooks/useClickToMove'
 import { useChallenges } from './context'
 import { liveRemainingMs } from './types'
 import type { PlayStatus, ReceivedSnapshot } from './types'
@@ -87,6 +88,8 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
     play('lowTime')
   }, [lowTime])
 
+  const clickToMove = useClickToMove(boardFen, canMove, (from, to) => { handleDrop(from, to) })
+
   function handleDrop(sourceSquare: string, targetSquare: string | null) {
     if (!canMove || !position || !targetSquare) return false
     const board = new Chess(position.fen)
@@ -142,6 +145,8 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
           onPieceDrop: ({ sourceSquare, targetSquare }) => handleDrop(sourceSquare, targetSquare),
           boardOrientation: snapshot.side === 'b' ? 'black' : 'white',
           allowDragging: canMove,
+          onSquareClick: clickToMove.onSquareClick,
+          squareStyles: clickToMove.squareStyles,
           boardStyle: { borderRadius: '2px', boxShadow: '0 18px 50px rgba(18, 28, 35, .18)' },
         }} />
         {!started && <div className="countdown-overlay"><span>{Math.ceil(startsInMs / 1000)}</span></div>}
