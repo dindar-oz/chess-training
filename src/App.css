@@ -530,6 +530,50 @@ h1 em { color: var(--green); font-style: italic; }
 @media (max-width: 1100px) {
   .review-layout { grid-template-areas: 'moves board' 'moves panels'; grid-template-columns: 210px minmax(0, 1fr); }
 }
+/* Accuracy plot below the review board: you and the master in two validated
+   hues (blue, orange; checked for colour blindness on the white page), other
+   challengers as muted lines. Text stays in ink; colour is only on marks. */
+.accuracy-plot { --series-you: #2a78d6; --series-master: #eb6834; --series-other: #b9c0bc; --plot-surface: #ffffff; position: relative; width: 100%; }
+.accuracy-plot-head { align-items: baseline; display: flex; flex-wrap: wrap; gap: 6px 18px; margin-bottom: 6px; }
+.accuracy-plot-head .section-label { margin: 0; }
+.accuracy-plot-head .text-button { margin-left: auto; }
+.plot-legend { color: var(--muted); display: flex; flex-wrap: wrap; font: 11px 'DM Mono', monospace; gap: 14px; }
+.plot-legend span { align-items: center; display: inline-flex; gap: 6px; }
+.plot-key { border-radius: 2px; display: inline-block; height: 2px; width: 14px; }
+.plot-key.you { background: var(--series-you); }
+.plot-key.master { background: var(--series-master); }
+.plot-key.other { background: var(--series-other); }
+.plot-frame { position: relative; }
+.plot-frame svg { cursor: crosshair; display: block; overflow: visible; }
+.plot-grid { stroke: #e6e9e7; stroke-width: 1; }
+.plot-tick { fill: var(--muted); font: 10px 'DM Mono', monospace; font-variant-numeric: tabular-nums; }
+.plot-line { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.plot-line.you { stroke: var(--series-you); }
+.plot-line.master { stroke: var(--series-master); }
+.plot-line.other { stroke: var(--series-other); stroke-width: 1.5; }
+.plot-end, .plot-mark { stroke: var(--plot-surface); stroke-width: 2; }
+.plot-end.you { fill: var(--series-you); }
+.plot-end.master { fill: var(--series-master); }
+.plot-mark.mistake { fill: var(--amber); }
+.plot-mark.blunder { fill: var(--red); }
+.plot-end-label { fill: var(--ink); font: 500 11px 'DM Mono', monospace; }
+.plot-position { stroke: var(--ink); stroke-opacity: .35; stroke-width: 1; }
+.plot-crosshair { stroke: var(--muted); stroke-width: 1; }
+.plot-tooltip { background: var(--panel); border: 1px solid var(--line); box-shadow: 0 8px 24px rgba(18, 28, 35, .14); min-width: 150px; padding: 8px 10px; pointer-events: none; position: absolute; top: 8px; z-index: 2; }
+.plot-tooltip.right { transform: translateX(12px); }
+.plot-tooltip.left { transform: translateX(calc(-100% - 12px)); }
+.plot-tooltip p { color: var(--muted); font: 11px 'DM Mono', monospace; margin: 0 0 5px; }
+.plot-tooltip div { align-items: center; display: flex; gap: 8px; padding: 2px 0; }
+.plot-tooltip strong { color: var(--ink); font: 600 12px 'DM Mono', monospace; min-width: 36px; }
+.plot-tooltip span { color: var(--muted); font-size: 12px; }
+.plot-note { color: var(--muted); font: 10px 'DM Mono', monospace; margin: 4px 0 0; }
+.plot-table-wrap { max-height: 240px; overflow: auto; }
+.plot-table { border-collapse: collapse; font: 12px 'DM Mono', monospace; width: 100%; }
+.plot-table th { background: var(--panel); color: var(--muted); font-weight: 500; position: sticky; text-align: left; top: 0; }
+.plot-table th, .plot-table td { border-bottom: 1px solid var(--line); padding: 5px 8px; }
+.plot-table tbody tr { cursor: pointer; }
+.plot-table tbody tr:hover { background: var(--paper); }
+.plot-toggle { align-self: center; margin-left: auto; }
 /* Results screens: a small board stepped with Prev and Next. */
 .review-preview { margin: 10px 0 28px; max-width: 360px; }
 .review-preview-head { align-items: center; display: flex; justify-content: space-between; margin-bottom: 12px; }
