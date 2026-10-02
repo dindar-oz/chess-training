@@ -1,78 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { ReactNode } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
-import type { MoveMark } from '../../shared/badges.ts'
 import { ClientStockfishEngine } from '../clientStockfish'
 import type { EngineScore, LiveAnalysis } from '../clientStockfish'
 import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
-import type { LastMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
-import type { ChallengeSnapshot } from './types'
+import { StepCaption } from './StepCaption'
+import { markClasses, markRowClasses, plyLabel, reviewSteps, samePosition, stepMove } from './steps'
+import type { ReviewMove, ReviewStep } from './steps'
 
-type ReviewMove = NonNullable<ChallengeSnapshot['me']>['moves'][number]
-
-const markClasses: Record<MoveMark, string> = { '?': 'mark-mistake', '??': 'mark-blunder', '!': 'mark-only' }
-// Tints for the move-list rows of marked moves.
-const markRowClasses: Record<MoveMark, string> = { '?': 'row-mistake', '??': 'row-blunder', '!': 'row-only' }
 const engineLineCount = 3
 const shownPlies = 8
 // Finished searches by depth and position, so stepping back shows them at once.
 const finishedAnalyses = new Map<string, LiveAnalysis>()
-
-// One ply of the review: the position on the board and the move that led
-// there. `kind` says whose move it was: the historical opponent's reply, your
-// move, or the master's move that replaced a deviation of yours; `moveIndex`
-// is the row of your move it belongs to (the move about to come, for a reply).
-type ReviewStep = { kind: 'start' | 'reply' | 'yours' | 'master'; fen: string; moveIndex: number; ply: number; san: string | null; lastMove: LastMove | null }
-
-function plyLabel(ply: number) {
-  return `${Math.floor(ply / 2) + 1}${ply % 2 === 1 ? '...' : '.'}`
-}
-
-function moveLabel(move: ReviewMove) {
-  return plyLabel(move.ply)
-}
-
-// Fens of the same position can differ in their counters and en passant field.
-function samePosition(a: string, b: string) {
-  return a.split(' ').slice(0, 3).join(' ') === b.split(' ').slice(0, 3).join(' ')
-}
-
-function playUci(fen: string, uci: string) {
-  const chess = new Chess(fen)
-  const move = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] })
-  return { fen: chess.fen(), san: move.san, lastMove: { from: move.from, to: move.to } }
-}
-
-// The legal move from `fen` that reaches `target`, if any.
-function findMove(fen: string, target: string) {
-  const chess = new Chess(fen)
-  for (const move of chess.moves({ verbose: true })) {
-    if (samePosition(move.after, target)) return { san: move.san, lastMove: { from: move.from, to: move.to } }
-  }
-  return null
-}
-
-// The challenge one ply at a time: before each of your moves the opponent's
-// reply, then your move, then (where you deviated) the master's move instead.
-function reviewSteps(moves: ReviewMove[]) {
-  const steps: ReviewStep[] = []
-  let previous: string | null = null
-  moves.forEach((move, moveIndex) => {
-    const reply = previous ? findMove(previous, move.fen) : null
-    steps.push({ kind: moveIndex === 0 ? 'start' : 'reply', fen: move.fen, moveIndex, ply: move.ply - 1, san: reply?.san ?? null, lastMove: reply?.lastMove ?? null })
-    const yours = playUci(move.fen, move.attemptedUci)
-    steps.push({ kind: 'yours', fen: yours.fen, moveIndex, ply: move.ply, san: yours.san, lastMove: yours.lastMove })
-    previous = yours.fen
-    if (!move.correct) {
-      const master = playUci(move.fen, move.expectedUci)
-      steps.push({ kind: 'master', fen: master.fen, moveIndex, ply: move.ply, san: master.san, lastMove: master.lastMove })
-      previous = master.fen
-    }
-  })
-  return steps
-}
 
 // Engine scores are for the side to move; the panel shows them for White.
 function formatScore(score: EngineScore, whiteToMove: boolean) {
@@ -102,7 +43,7 @@ function lineToSan(fen: string, pv: string[]) {
 }
 
 // Live engine lines for the position on the board, deepening up to the
-// challenge's review depth in this browser.
+// game's review depth in this browser.
 function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
   const engine = useMemo(() => new ClientStockfishEngine(), [])
   const key = `${depth}|${fen}`
@@ -121,36 +62,74 @@ function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
 
   const analysis = finished ?? (live?.key === key ? live.analysis : null)
   const whiteToMove = chess.turn() === 'w'
-  return <div className="engine-panel" aria-live="polite">
+  return <div className="review-panel engine-panel" aria-live="polite">
     <div className="engine-panel-head">
       <p className="section-label">ENGINE ANALYSIS</p>
       <span>{gameOver ? '' : analysis ? `DEPTH ${analysis.depth}/${depth}${analysis.done ? '' : '...'}` : 'STARTING...'}</span>
     </div>
     {gameOver ? <p className="empty-log">{chess.isCheckmate() ? 'Checkmate.' : 'The game is drawn.'}</p>
       : !analysis || analysis.lines.length === 0 ? <p className="empty-log">Analyzing this position in your browser...</p>
-      : <>
-        <div className="engine-lines">{analysis.lines.map((line, index) => <div className="engine-line" key={index}>
-          <b>{formatScore(line.score, whiteToMove)}</b>
-          <span>{lineToSan(fen, line.pv)}</span>
-        </div>)}</div>
-      </>}
+      : <div className="engine-lines">{analysis.lines.map((line, index) => <div className="engine-line" key={index}>
+        <b>{formatScore(line.score, whiteToMove)}</b>
+        <span>{lineToSan(fen, line.pv)}</span>
+      </div>)}</div>}
   </div>
 }
 
-// A move played on the review board, away from the challenge line.
+// A move played on the review board, away from the game line.
 type AnalysisMove = { fen: string; san: string; number: number; white: boolean; from: string; to: string }
 
-// Steps through a player's challenge one ply at a time on a board: the
-// opponent's replies, their own moves, with an arrow for the master's move
-// where they deviated, and then that master's move. The engine gives its view
-// of each position. Moves played on the board branch into an analysis line
-// from the step on show; the challenge position it left comes back with
-// "Return to challenge position" (or a row click).
-export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; side: Side; depth: number }) {
+// What every side panel sees: the position on the board and where it is in the
+// game. `analysis` is the number of moves played off the game line (0 on it).
+export type ReviewPanelContext = { fen: string; depth: number; step: ReviewStep; move: ReviewMove; analysis: number }
+
+const markNames = { '??': 'a blunder', '?': 'a mistake', '!': 'the only good move' } as const
+
+// Explains the step on show: whose move it was, how it compared with the
+// master's, and its mark.
+function MoveInsightPanel({ step, move, analysis }: ReviewPanelContext) {
+  const label = stepMove(step)
+  let title: string
+  let text: string
+  if (analysis > 0) {
+    title = 'Your own line'
+    text = `You are ${analysis} ${analysis === 1 ? 'move' : 'moves'} into a line of your own from ${label ?? 'the start'}. The engine follows it; return to the game position when you're done.`
+  } else if (step.kind === 'yours') {
+    title = move.correct ? "You found the master's move" : "You left the master's line"
+    text = move.correct ? `${label} is what the master played.` : `You played ${label}; the master played ${move.expected} (the green arrow).`
+    if (move.mark) text += ` The engine rates your move ${markNames[move.mark]} (${move.mark}).`
+  } else if (step.kind === 'master') {
+    title = "The master's move"
+    text = `${label} replaced your ${move.attempted}, and the game went on from here.`
+  } else {
+    title = label ? 'The game continued' : 'Before your first move'
+    text = `${label ? `${label} was played. ` : ''}Your move ${plyLabel(move.ply)} comes next. Try to find it before you step on.`
+  }
+  return <div className="review-panel move-insight">
+    <p className="section-label">THIS MOVE</p>
+    <strong>{title}</strong>
+    <p>{text}</p>
+  </div>
+}
+
+// The side panels, top to bottom. A new panel is a component taking the
+// panel context, added here.
+const reviewPanels: Array<{ id: string; Panel: (context: ReviewPanelContext) => ReactNode }> = [
+  { id: 'move', Panel: MoveInsightPanel },
+  { id: 'engine', Panel: ({ fen, depth }) => <EnginePanel fen={fen} depth={depth} /> },
+]
+
+// Steps through a played game one ply at a time on a board: the opponent's
+// replies, your own moves, with an arrow for the master's move where you
+// deviated, and then that master's move. The engine gives its view of each
+// position. Moves played on the board branch into an analysis line from the
+// step on show; the game position it left comes back with "Return to game
+// position" (or a row click). The arrow keys step anywhere on the page.
+export function ReviewBoard({ moves, side, depth }: { moves: ReviewMove[]; side: Side; depth: number }) {
   const steps = useMemo(() => reviewSteps(moves), [moves])
   const [index, setIndex] = useState(0)
   // The analysis line from the step on show and how many of its moves are on
-  // the board (at least one); null while the board follows the challenge.
+  // the board (at least one); null while the board follows the game.
   const [analysis, setAnalysis] = useState<{ moves: AnalysisMove[]; shown: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const current = steps[index]
@@ -172,13 +151,25 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
     else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight
   }, [current.moveIndex])
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select')) return
+      if (event.key === 'ArrowLeft') step(-1)
+      else if (event.key === 'ArrowRight') step(1)
+      else return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
+
   function goTo(target: number) {
     setAnalysis(null)
     setIndex(target)
   }
 
   // In analysis, steps along the analysis line; stepping back past its first
-  // move returns to the challenge position.
+  // move returns to the game position.
   function step(delta: number) {
     if (analysis) {
       const shown = Math.min(analysis.moves.length, analysis.shown + delta)
@@ -199,8 +190,8 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
     } catch {
       return false
     }
-    // A move of the challenge just steps along it: the next ply, or the
-    // master's move when the next ply is a deviation of yours.
+    // A move of the game just steps along it: the next ply, or the master's
+    // move when the next ply is a deviation of yours.
     if (!analysis) {
       const target = [index + 1, index + 2].find((candidate) => steps[candidate] && samePosition(steps[candidate].fen, chess.fen())
         && (candidate === index + 1 || steps[candidate].kind === 'master'))
@@ -215,19 +206,11 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
     return true
   }
 
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.key === 'ArrowLeft') step(-1)
-    else if (event.key === 'ArrowRight') step(1)
-    else return
-    event.preventDefault()
-  }
-
-  const stepMove = current.san ? `${plyLabel(current.ply)} ${current.san}` : null
-  return <div className="challenge-review" tabIndex={-1} onKeyDown={onKeyDown}>
+  return <div className="review-layout">
     <div className="move-log review-moves" ref={listRef}>
       <p className="section-label">YOUR MOVES</p>
       {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === selectedRow ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(steps.findIndex((candidate) => candidate.kind === 'yours' && candidate.moveIndex === recordIndex))}>
-        <span>{moveLabel(record)}</span>
+        <span>{plyLabel(record.ply)}</span>
         <strong>{record.attempted}{record.mark && <span className={`move-mark ${markClasses[record.mark]}`}>{record.mark}</span>}</strong>
         <span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span>
       </button>)}
@@ -243,25 +226,23 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
           squareStyles: clickToMove.squareStyles,
           boardStyle: { borderRadius: '2px', boxShadow: '0 18px 50px rgba(18, 28, 35, .18)' },
         }} />
-        {analysis && <span className="analysis-tag">ANALYSIS · OFF THE CHALLENGE LINE</span>}
+        {analysis && <span className="analysis-tag">ANALYSIS · OFF THE GAME LINE</span>}
       </div>
       <div className="review-controls">
         <button className="table-action secondary" disabled={index === 0 && !analysis} onClick={() => goTo(0)} title="Back to the start">⏮ Start</button>
         <button className="table-action secondary" disabled={index === 0 && !analysis} onClick={() => step(-1)} title="Previous move (←)">◀ Prev</button>
         <button className="table-action secondary" disabled={analysis ? analysis.shown === analysis.moves.length : index === steps.length - 1} onClick={() => step(1)} title="Next move (→)">Next ▶</button>
-        {analysis && <button className="table-action" onClick={() => setAnalysis(null)} title="Back to the position you started analyzing from">↩ Return to challenge position</button>}
+        {analysis && <button className="table-action" onClick={() => setAnalysis(null)} title="Back to the position you started analyzing from">↩ Return to game position</button>}
         <span>{analysis
-          ? <>From {stepMove ?? 'the start'}: {analysis.moves.map((line, lineIndex) => {
+          ? <>From {stepMove(current) ?? 'the start'}: {analysis.moves.map((line, lineIndex) => {
             const text = line.white ? `${line.number}. ${line.san}` : lineIndex === 0 ? `${line.number}... ${line.san}` : line.san
             return <span key={lineIndex} className={lineIndex === analysis.shown - 1 ? 'analysis-current' : lineIndex >= analysis.shown ? 'analysis-ahead' : ''}>{lineIndex > 0 && ' '}{text}</span>
           })}</>
-          : current.kind === 'yours'
-          ? <>Your move {stepMove}{move.mark}{!move.correct && <> · the master played <b>{move.expected}</b></>}</>
-          : current.kind === 'master' ? <>The master's move <b>{stepMove}</b></>
-          : stepMove ? <>The game continued {stepMove}</>
-          : 'Before your first move'}</span>
+          : <StepCaption step={current} move={move} />}</span>
       </div>
-      <EnginePanel fen={fen} depth={depth} />
     </div>
+    <aside className="review-panels">
+      {reviewPanels.map(({ id, Panel }) => <Panel key={id} fen={fen} depth={depth} step={current} move={move} analysis={analysis?.shown ?? 0} />)}
+    </aside>
   </div>
 }

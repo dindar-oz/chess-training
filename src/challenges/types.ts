@@ -1,4 +1,4 @@
-import type { MoveMark } from '../../shared/badges.ts'
+import type { ReviewMove } from '../review/steps'
 import type { TimeControl } from '../timeControl'
 import type { Side } from '../types'
 
@@ -63,7 +63,7 @@ export type ChallengeSnapshot = {
     // previousUci: the move that led here, for the last-move highlight.
     position: { ply: number; fen: string; moveNumber: number; previousSan: string | null; previousUci: string | null } | null
     // mark: ?, ?? or ! once the move has been analyzed (see moveMark).
-    moves: Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean; mark: MoveMark | null }>
+    moves: ReviewMove[]
     analysisSubmitted: boolean
   } | null
 }
@@ -84,6 +84,8 @@ export type ChallengeHistoryEntry = {
   eloAfter: number | null
   accuracy: number | null
   players: number
+  // Your moves in it; a challenge you played no moves in has nothing to analyze.
+  movesPlayed: number
 }
 
 export type ChatMessage = {

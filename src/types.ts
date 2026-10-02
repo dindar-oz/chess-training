@@ -31,6 +31,8 @@ export type SessionStat = {
   timeControl: string | null
   endReason: 'completed' | 'timeout' | 'resigned'
   completedAt: string
+  // The moves were saved, so the session can be opened on the analysis page.
+  hasReview?: boolean
 }
 
 export type LeaderboardEntry = {

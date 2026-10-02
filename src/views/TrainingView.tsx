@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
-import { accuracyFromCpl } from '../../shared/accuracy.ts'
+import { accuracyFromCpl, scoreValue } from '../../shared/accuracy.ts'
+import { moveMark } from '../../shared/badges.ts'
 // Rollback: swap this import back to `import { StockfishEngine } from '../stockfish'`
 // to restore server-side analysis via /api/analyze (untouched in server.ts).
 import { ClientStockfishEngine as StockfishEngine } from '../clientStockfish'
@@ -13,6 +14,8 @@ import { play } from '../sounds'
 import { TimeControlPicker } from '../components/TimeControlPicker'
 import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
 import { useTrainingSession } from '../hooks/useTrainingSession'
+import { plyOf } from '../review/steps'
+import type { ReviewMove, ReviewSource } from '../review/steps'
 import { readStored, writeStored } from '../storage'
 import { formatTimeControl, isValidTimeControl } from '../timeControl'
 import type { TimeControl } from '../timeControl'
@@ -29,6 +32,7 @@ type TrainingViewProps = {
   selectedGame: GameRecord
   onNavigate: (view: AppView) => void
   onStatSaved: (stat: SessionStat, totalXp: number | null) => void
+  onAnalyze: (source: ReviewSource) => void
 }
 
 const timeControlStorageKey = 'chess-training-time-control'
@@ -58,7 +62,7 @@ function storedTimeControl() {
   return isValidTimeControl(stored) ? stored : null
 }
 
-export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: TrainingViewProps) {
+export function TrainingView({ user, selectedGame, onNavigate, onStatSaved, onAnalyze }: TrainingViewProps) {
   const openingGame = useMemo(() => getOpeningGame(selectedGame.pgn), [selectedGame])
   const originalMoves = useMemo(() => openingGame.history({ verbose: true }), [openingGame])
   const session = useTrainingSession(originalMoves)
@@ -79,6 +83,8 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
   const [backgroundReady, setBackgroundReady] = useState(0)
   const savedStatKey = useRef<string | null>(null)
   const [lastXpGained, setLastXpGained] = useState<number | null>(null)
+  // The saved session, once its moves are stored for the analysis page.
+  const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
   const engine = useMemo(() => new StockfishEngine(), [])
   const clickToMove = useClickToMove(session.game.fen(), status === 'playing' && session.isUsersTurn, (from, to) => { session.handleMove(from, to) }, lastMoveFromUci(session.game.history({ verbose: true }).at(-1)?.lan))
 
@@ -195,15 +201,33 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
       timeControl: session.timeControl ? formatTimeControl(session.timeControl) : null,
       endReason: session.endReason ?? 'completed',
       completedAt: new Date().toISOString(),
+      hasReview: true,
     }
-    void fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(stat) })
-      .then((response) => response.json() as Promise<{ xpGained?: number; totalXp?: number }>)
+    // Your moves for the analysis page, marked ? or ?? from the engine review
+    // (the review has no second-best line, so no ! marks).
+    const moves: ReviewMove[] = records.map((record, index) => {
+      const result = analysisResults[index]
+      return {
+        ply: plyOf(record.fenBefore),
+        fen: record.fenBefore,
+        attempted: record.attempted,
+        expected: record.expected,
+        attemptedUci: record.attemptedUci,
+        expectedUci: record.expectedUci,
+        correct: record.correct,
+        mark: result ? moveMark({ best: scoreValue(result.best), attempted: scoreValue(result.attemptedScore), second: null, playedBest: false }) : null,
+      }
+    })
+    const sessionId = stat.id
+    void fetch('/api/stats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...stat, review: { depth: analysisDepth, moves } }) })
+      .then((response) => response.json() as Promise<{ ok?: boolean; xpGained?: number; totalXp?: number }>)
       .then((result) => {
         if (typeof result.xpGained === 'number') setLastXpGained(result.xpGained)
+        if (result.ok) setSavedSessionId(sessionId)
         onStatSaved(stat, typeof result.totalXp === 'number' ? result.totalXp : null)
       })
     savedStatKey.current = sessionStartedAt.current
-  }, [analysisStatus, correctCount, learnerAccuracy, learnerAverageCpl, onStatSaved, originalAccuracy, records.length, selectedGame.id, selectedGame.title, session.endReason, session.timeControl, side])
+  }, [analysisDepth, analysisResults, analysisStatus, correctCount, learnerAccuracy, learnerAverageCpl, onStatSaved, originalAccuracy, records, selectedGame.id, selectedGame.title, session.endReason, session.timeControl, side])
 
   function resetAnalysis() {
     setAnalysisStatus('idle')
@@ -229,6 +253,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     setSessionToken(sessionStartedAt.current)
     savedStatKey.current = null
     setLastXpGained(null)
+    setSavedSessionId(null)
     setBackgroundReady(0)
     lowTimeWarned.current = false
     resetAnalysis()
@@ -239,6 +264,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
     session.reset()
     resetAnalysis()
     setLastXpGained(null)
+    setSavedSessionId(null)
   }
 
   const statusTitle = status === 'complete'
@@ -302,6 +328,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved }: Tr
               {status === 'complete' && records.length > 0 && <section className="engine-review">
                 <div className="review-heading"><p className="section-label">ENGINE REVIEW</p><span className={analysisStatus}>{analysisStatus === 'running' ? 'ANALYZING' : analysisStatus === 'ready' ? 'READY' : analysisStatus === 'failed' ? 'UNAVAILABLE' : 'WAITING'}</span></div>
                 {lastXpGained !== null && lastXpGained > 0 && <p className="xp-earned">+{lastXpGained} XP earned</p>}
+                {savedSessionId && <button className="table-action training-analyze" onClick={() => onAnalyze({ kind: 'training', sessionId: savedSessionId })}><span className="button-icon" aria-hidden="true">⌕</span> Analyze this game</button>}
                 <label className="depth-control">DEPTH <strong>{analysisDepth}</strong><input type="range" min="12" max="30" value={analysisDepth} disabled={analysisStatus === 'running'} onChange={(event) => { setAnalysisDepth(Number(event.target.value)); setAnalysisStatus('idle'); setAnalysisResults([]) }} /></label>
                 {analysisStatus === 'running' && <div className="analysis-progress" aria-live="polite">
                   <div className="analysis-progress-label"><strong>Move {analysisCurrentMove} of {records.length} · {analysisPhase === 'best' ? 'best line' : analysisPhase === 'original' ? 'original move' : 'your move'}</strong><span>{Math.round(analysisProgress * 100)}%</span></div>

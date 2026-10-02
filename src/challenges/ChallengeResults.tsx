@@ -2,7 +2,7 @@ import { useRealtime } from '../realtime/context'
 import { useChallenges } from './context'
 import { formatClock, formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
-import { ChallengeReview } from './ChallengeReview'
+import { ReviewPreview } from '../review/ReviewPreview'
 import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
 import { useNow } from './useNow'
@@ -20,6 +20,7 @@ type ChallengeResultsProps = {
   analysisRun: AnalysisRun | null
   onRetryAnalysis: () => void
   onTrainGame: (gameId: string) => void
+  onAnalyze: (challengeId: string) => void
   onClose: () => void
   closeLabel: string
   // When the snapshot arrived (performance.now()), so the grace countdown can tick.
@@ -28,7 +29,7 @@ type ChallengeResultsProps = {
   showChat: boolean
 }
 
-export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onClose, closeLabel, showChat, receivedAt }: ChallengeResultsProps) {
+export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onAnalyze, onClose, closeLabel, showChat, receivedAt }: ChallengeResultsProps) {
   const { onlineUsers } = useRealtime()
   const { helperRuns } = useChallenges()
   const onlineIds = new Set(onlineUsers.map((onlineUser) => onlineUser.id))
@@ -91,7 +92,7 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
     </>}
 
     {challenge.me && challenge.me.moves.length > 0 && challenge.side && challenge.status !== 'analyzing'
-      ? <ChallengeReview moves={challenge.me.moves} side={challenge.side} depth={challenge.depth} />
+      ? <ReviewPreview moves={challenge.me.moves} side={challenge.side} onAnalyze={() => onAnalyze(challenge.id)} />
       : challenge.me && challenge.me.moves.length > 0 && <div className="move-log results-moves"><p className="section-label">YOUR MOVES</p>{challenge.me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>}
     {showChat && <ChallengeChat userId={userId} />}
     {challenge.status !== 'analyzing' && <button className="primary-button results-close" onClick={onClose}>{closeLabel}</button>}

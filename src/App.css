@@ -474,9 +474,20 @@ h1 em { color: var(--green); font-style: italic; }
 .analysis-players .offline strong { color: var(--muted); }
 .results-note { color: var(--muted); font-size: 12px; margin: 14px 0 28px; }
 .results-moves { margin: 10px 0 24px; max-width: 460px; }
-/* Post-challenge review: a narrow move list beside a large board. */
-.challenge-review { align-items: start; display: grid; gap: 36px; grid-template-columns: 230px minmax(0, 1fr); margin: 10px 0 28px; outline: none; }
-.review-moves { max-height: min(760px, calc(100vh - 120px)); overflow-y: auto; position: relative; }
+/* Analysis page: a header with the game and its summary, then the move list,
+   the board and a column of side panels (see reviewPanels). */
+.review-page-head { margin: 4px 0 26px; }
+.review-back { font-size: 12px; margin-bottom: 14px; }
+.review-title h2 { color: var(--ink); font: 600 28px/1.15 'Playfair Display', serif; margin: 0 0 6px; }
+.review-title span { color: var(--muted); font-size: 13px; }
+.review-summary { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 0; margin-top: 18px; }
+.review-summary div { border-left: 1px solid var(--line); padding: 12px 22px; }
+.review-summary div:first-child { border-left: 0; padding-left: 0; }
+.review-summary strong { color: var(--ink); display: block; font: 600 20px 'Playfair Display', serif; }
+.review-summary strong b { font: 700 16px 'DM Mono', monospace; }
+.review-summary span { color: var(--muted); display: block; font: 10px 'DM Mono', monospace; letter-spacing: .06em; margin-top: 3px; }
+.review-layout { align-items: start; display: grid; gap: 30px; grid-template-areas: 'moves board panels'; grid-template-columns: 210px minmax(0, 1fr) 290px; }
+.review-moves { grid-area: moves; max-height: min(760px, calc(100vh - 120px)); overflow-y: auto; position: relative; }
 .review-moves .move-row { background: none; border: 0; border-bottom: 1px solid #e8ebe8; cursor: pointer; font: inherit; grid-template-columns: 38px 1fr auto; padding: 8px 6px; text-align: left; width: 100%; }
 .review-moves .move-row:hover { background: var(--paper); }
 .review-moves .move-row.selected { background: var(--green-soft); }
@@ -485,10 +496,10 @@ h1 em { color: var(--green); font-style: italic; }
 .mark-mistake { color: var(--amber); }
 .mark-blunder { color: var(--red); }
 .mark-only { color: #2f6db5; }
-.review-board-column { display: grid; gap: 16px; max-width: 560px; }
-/* Sized so the board, its controls and the engine lines fit on one screen. */
-.review-board { max-width: none; position: relative; width: min(100%, max(360px, calc(100vh - 260px))); }
-/* Off the challenge line: an amber frame and tag mark the board as analysis. */
+.review-board-column { display: grid; gap: 16px; grid-area: board; justify-items: center; }
+/* Sized from the viewport height so the board and its controls fit on one screen. */
+.review-board { max-width: none; position: relative; width: min(100%, max(360px, calc(100vh - 230px))); }
+/* Off the game line: an amber frame and tag mark the board as analysis. */
 .review-board.analyzing { outline: 3px solid var(--amber); outline-offset: 3px; }
 .analysis-tag { background: var(--amber); color: white; font: 500 10px 'DM Mono', monospace; left: 14px; letter-spacing: .08em; padding: 5px 9px; pointer-events: none; position: absolute; top: -14px; z-index: 1; }
 .review-moves .move-row.branched { background: none; box-shadow: inset 3px 0 var(--amber); }
@@ -501,17 +512,35 @@ h1 em { color: var(--green); font-style: italic; }
 .review-moves .move-row.marked.branched { box-shadow: inset 3px 0 var(--amber); }
 .review-controls .analysis-current { background: #f7ecd6; color: var(--ink); }
 .review-controls .analysis-ahead { opacity: .5; }
-.review-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.review-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
 .review-controls > span { color: var(--muted); font: 12px 'DM Mono', monospace; margin-left: auto; }
 .review-controls > span b { color: var(--ink); font-weight: 500; }
 .review-controls .table-action:disabled { cursor: default; opacity: .4; }
-.engine-panel { border-top: 1px solid var(--line); padding-top: 14px; }
+.review-hint { color: var(--muted); font: 11px 'DM Mono', monospace; margin: 22px 0 0; }
+.review-panels { display: grid; gap: 22px; grid-area: panels; }
+.review-panel { border-top: 1px solid var(--line); padding-top: 14px; }
+.move-insight strong { color: var(--ink); display: block; font: 600 17px 'Playfair Display', serif; margin-bottom: 6px; }
+.move-insight p:last-child { color: var(--ink); font-size: 13px; line-height: 1.55; margin: 0; }
 .engine-panel-head { align-items: baseline; display: flex; justify-content: space-between; }
 .engine-panel-head .section-label { margin-bottom: 10px; }
 .engine-panel-head > span { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: .08em; }
-.engine-line { border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: 62px 1fr; padding: 7px 0; }
+.engine-line { border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: 54px 1fr; padding: 7px 0; }
 .engine-line b { color: var(--green); font: 500 12px 'DM Mono', monospace; }
 .engine-line span { color: var(--ink); font: 12px/1.5 'DM Mono', monospace; }
+@media (max-width: 1100px) {
+  .review-layout { grid-template-areas: 'moves board' 'moves panels'; grid-template-columns: 210px minmax(0, 1fr); }
+}
+/* Results screens: a small board stepped with Prev and Next. */
+.review-preview { margin: 10px 0 28px; max-width: 360px; }
+.review-preview-head { align-items: center; display: flex; justify-content: space-between; margin-bottom: 12px; }
+.review-preview-head .section-label { margin: 0; }
+.review-preview-board { margin-bottom: 12px; max-width: 360px; }
+.review-preview-caption { color: var(--muted); font: 12px 'DM Mono', monospace; margin: 10px 0 0; }
+.review-preview-caption b { color: var(--ink); font-weight: 500; }
+.training-analyze { margin-top: 12px; }
+/* History rows with an Analyze button in a last column (empty when there is nothing to analyze). */
+.history-row.with-action { grid-template-columns: 2fr repeat(3, 1fr) 92px; }
+.history-analyze { justify-content: center; }
 .results-close { margin-top: 10px; }
 .challenge-history { margin-top: 52px; }
 .history-button { background: none; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; font: inherit; text-align: left; width: 100%; }
@@ -575,12 +604,14 @@ h1 em { color: var(--green); font-style: italic; }
   .stats-summary { grid-auto-flow: row; grid-template-columns: 1fr 1fr; }
   .stats-summary div:nth-child(3) { border-left: 0; padding-left: 0; }
   .history-row { gap: 12px; grid-template-columns: 1.5fr 1fr 1fr; }
-  .history-row > div:last-child { display: none; }
+  .history-row > div:last-of-type { display: none; }
+  .history-row.with-action { grid-template-columns: 1.5fr 1fr 1fr 80px; }
   .pagination { align-items: stretch; flex-direction: column; gap: 10px; }
   .challenge-lobby { display: block; }
-  .challenge-review { display: flex; flex-direction: column-reverse; gap: 24px; }
-  .review-moves { max-height: 320px; width: 100%; }
-  .review-board-column { width: 100%; }
+  .review-layout { gap: 24px; grid-template-areas: 'board' 'panels' 'moves'; grid-template-columns: minmax(0, 1fr); }
+  .review-moves { max-height: 320px; }
+  .review-board { width: 100%; }
+  .review-summary div { padding: 10px 14px; }
   .challenge-lobby-actions { margin-top: 30px; }
   .open-challenge { gap: 12px; grid-template-columns: minmax(0, 1fr) auto auto 64px; }
   .open-challenge > span:nth-child(3), .open-challenge > span:nth-child(4) { display: none; }
