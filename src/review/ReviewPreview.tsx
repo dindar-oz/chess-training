@@ -23,6 +23,7 @@ export function ReviewPreview({ moves, side, onAnalyze }: { moves: ReviewMove[];
     </div>
     <div className="board-wrap review-preview-board">
       <Chessboard options={{
+        id: 'review-preview-board',
         position: current.fen,
         boardOrientation: side === 'b' ? 'black' : 'white',
         allowDragging: false,

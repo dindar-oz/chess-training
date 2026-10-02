@@ -247,6 +247,9 @@ export function ReviewBoard({ moves, side, depth, belowBoard }: { moves: ReviewM
     <div className="review-board-column">
       <div className={`board-wrap review-board ${analysis ? 'analyzing' : ''}`}>
         <Chessboard options={{
+          // Its own id: the library finds squares by id, and the page this one
+          // opened over stays mounted (hidden) with its own board.
+          id: 'review-board',
           position: fen,
           boardOrientation: side === 'b' ? 'black' : 'white',
           onPieceDrop: ({ sourceSquare, targetSquare }) => playMove(sourceSquare, targetSquare),

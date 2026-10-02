@@ -147,6 +147,7 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
       <div className="board-labels"><span>{snapshot.side === 'w' ? 'YOU (WHITE)' : 'WHITE'}</span><span className="score">MYSTERY GAME</span><span>{snapshot.side === 'b' ? 'YOU (BLACK)' : 'BLACK'}</span></div>
       <div className="board-wrap challenge-board">
         <Chessboard options={{
+          id: 'challenge-board',
           position: boardFen,
           onPieceDrop: ({ sourceSquare, targetSquare }) => handleDrop(sourceSquare, targetSquare),
           boardOrientation: snapshot.side === 'b' ? 'black' : 'white',
