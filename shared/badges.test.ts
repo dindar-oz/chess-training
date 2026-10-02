@@ -81,14 +81,16 @@ test('outplaying the master needs a finished game and a 1-point accuracy lead', 
   assert.ok(!analysisBadgesFor({ depth: 21, finished: true, moves: [move(), move()] }).includes('outplay-master'))
 })
 
-test('mistakes and blunders are judged by lost winning chances', () => {
-  const clean = (moves: ReviewedMove[], finished = true) => analysisBadgesFor({ depth: 21, finished, moves }).filter((id) => id === 'no-blunders' || id === 'no-mistakes')
-  assert.deepEqual(clean([move(), move()]), ['no-blunders', 'no-mistakes'])
+test('inaccuracies, mistakes and blunders are judged by lost winning chances', () => {
+  const clean = (moves: ReviewedMove[], finished = true) => analysisBadgesFor({ depth: 21, finished, moves }).filter((id) => id === 'no-blunders' || id === 'no-mistakes' || id === 'no-inaccuracies')
+  assert.deepEqual(clean([move(), move()]), ['no-blunders', 'no-mistakes', 'no-inaccuracies'])
   // 0 to -120 centipawns loses about 0.22: a mistake, not a blunder.
   assert.deepEqual(clean([move(), move({ best: 0, attempted: -120, cpl: 120 })]), ['no-blunders'])
   assert.deepEqual(clean([move({ best: 100, attempted: -300, cpl: 400 })]), [])
-  // Dropping from +9 to +6 in a won position is neither.
+  // Dropping from +9 to +6 in a won position loses about 0.13: an inaccuracy only.
   assert.deepEqual(clean([move({ best: 900, attempted: 600, cpl: 300 })]), ['no-blunders', 'no-mistakes'])
+  // 0 to -40 centipawns loses about 0.07: not even an inaccuracy.
+  assert.deepEqual(clean([move(), move({ best: 0, attempted: -40, cpl: 40 })]), ['no-blunders', 'no-mistakes', 'no-inaccuracies'])
   // Only finished games count, and every move needs its scores.
   assert.deepEqual(clean([move()], false), [])
   assert.deepEqual(clean([move(), move({ best: null, attempted: null })]), [])
@@ -102,14 +104,18 @@ test('only moves count when the player found the best move and the rest lose', (
   assert.deepEqual(badges([onlyMove, onlyMove, { ...onlyMove, second: null }]), [])
 })
 
-test('moves are marked as blunders, mistakes and only moves like the badges judge them', () => {
+test('moves are marked as blunders, mistakes, inaccuracies and only moves like the badges judge them', () => {
   const move = { best: 50, attempted: 50, second: null, playedBest: false }
   assert.equal(moveMark(move), null)
-  // 0.2 and 0.3 of winning chance lost from an equal position.
+  // 0.1, 0.2 and 0.3 of winning chance lost from an equal position.
+  assert.equal(moveMark({ ...move, best: 0, attempted: -40 }), null)
+  assert.equal(moveMark({ ...move, best: 0, attempted: -60 }), '?!')
   assert.equal(moveMark({ ...move, best: 0, attempted: -120 }), '?')
   assert.equal(moveMark({ ...move, best: 0, attempted: -170 }), '??')
-  // Dropping from +9 to +6 in a won position is neither.
-  assert.equal(moveMark({ ...move, best: 900, attempted: 600 }), null)
+  // Dropping from +9 to +6 in a won position is only an inaccuracy.
+  assert.equal(moveMark({ ...move, best: 900, attempted: 600 }), '?!')
+  // The move from your 15. Bxd5 (+0.29 to -0.63): an inaccuracy, short of a mistake.
+  assert.equal(moveMark({ ...move, best: 29, attempted: -63 }), '?!')
   assert.equal(moveMark({ ...move, playedBest: true, second: -150 }), '!')
   assert.equal(moveMark({ ...move, playedBest: false, second: -150 }), null)
   // Unscored moves (older pages) get no mark.

@@ -181,8 +181,14 @@ test('a live search reports progress, and cancelling it frees the engine for the
   const { start } = fakeEngine({ deep: { ms: 10_000, cp: 50 }, next: { cp: 60 } })
   const channel = new EngineChannel(start, fast)
   const updates: SearchProgress[] = []
-  const cancel = channel.live({ fen: 'deep', depth: 30, multipv: 3 }, (progress) => updates.push(progress))
-  await new Promise((resolve) => setTimeout(resolve, 20))
+  // Cancelled once the first progress arrives (however long the engine takes to start).
+  let firstUpdate: () => void = () => undefined
+  const started = new Promise<void>((resolve) => { firstUpdate = resolve })
+  const cancel = channel.live({ fen: 'deep', depth: 30, multipv: 3 }, (progress) => {
+    updates.push(progress)
+    firstUpdate()
+  })
+  await started
   cancel()
   assert.equal((await channel.search({ fen: 'next', depth: 12, multipv: 1 })).lines[0].score.cp, 60)
   assert.ok(updates.length >= 1 && updates.every((update) => !update.done))

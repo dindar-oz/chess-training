@@ -236,7 +236,7 @@ function isLockedAdmin(username: string) {
 
 // A training session's moves can make its stats submission larger than other requests.
 const maxStatsBytes = 512 * 1024
-const reviewMarks = new Set(['?', '??', '!'])
+const reviewMarks = new Set(['?!', '?', '??', '!'])
 
 // The moves of a training session for the analysis page, checked field by field
 // and stored as JSON: the review depth, and per move the position before it,
