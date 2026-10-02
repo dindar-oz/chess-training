@@ -487,6 +487,13 @@ h1 em { color: var(--green); font-style: italic; }
 .mark-only { color: #2f6db5; }
 .review-board-column { display: grid; gap: 16px; max-width: 640px; }
 .review-board { max-width: none; }
+.review-board { position: relative; }
+/* Off the challenge line: an amber frame and tag mark the board as analysis. */
+.review-board.analyzing { outline: 3px solid var(--amber); outline-offset: 3px; }
+.analysis-tag { background: var(--amber); color: white; font: 500 10px 'DM Mono', monospace; left: 14px; letter-spacing: .08em; padding: 5px 9px; pointer-events: none; position: absolute; top: -14px; z-index: 1; }
+.review-moves .move-row.branched { background: none; box-shadow: inset 3px 0 var(--amber); }
+.review-controls .analysis-current { background: #f7ecd6; color: var(--ink); }
+.review-controls .analysis-ahead { opacity: .5; }
 .review-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
 .review-controls > span { color: var(--muted); font: 12px 'DM Mono', monospace; margin-left: auto; }
 .review-controls > span b { color: var(--ink); font-weight: 500; }
