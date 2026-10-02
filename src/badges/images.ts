@@ -7,6 +7,7 @@ import streak5 from '../assets/badge-challenge-streak-5.svg'
 import firstChallenge from '../assets/badge-first-challenge.svg'
 import firstGame from '../assets/badge-first-game.svg'
 import noBlunders from '../assets/badge-no-blunders.svg'
+import noInaccuracies from '../assets/badge-no-inaccuracies.svg'
 import noMistakes from '../assets/badge-no-mistakes.svg'
 import onlyMoves3 from '../assets/badge-only-moves-3.svg'
 import outplayMaster from '../assets/badge-outplay-master.svg'
@@ -23,5 +24,6 @@ export const badgeImages: Record<BadgeId, string> = {
   'outplay-master': outplayMaster,
   'no-blunders': noBlunders,
   'no-mistakes': noMistakes,
+  'no-inaccuracies': noInaccuracies,
   'only-moves-3': onlyMoves3,
 }

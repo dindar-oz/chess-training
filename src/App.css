@@ -500,6 +500,8 @@ h1 em { color: var(--green); font-style: italic; }
 .review-moves .move-row.selected { background: var(--green-soft); }
 .review-moves .move-row > span:last-child { font: 10px 'DM Mono', monospace; }
 .move-mark { font-weight: 700; margin-left: 2px; }
+/* Inaccuracies in a muted yellow-olive: the scale runs ?! olive, ? amber, ?? red. */
+.mark-inaccuracy { color: #8f8a1e; }
 .mark-mistake { color: var(--amber); }
 .mark-blunder { color: var(--red); }
 .mark-only { color: #2f6db5; }
@@ -512,6 +514,7 @@ h1 em { color: var(--green); font-style: italic; }
 .analysis-tag { background: var(--amber); color: white; font: 500 10px 'DM Mono', monospace; left: 14px; letter-spacing: .08em; padding: 5px 9px; pointer-events: none; position: absolute; top: -14px; z-index: 1; }
 .review-moves .move-row.branched { background: none; box-shadow: inset 3px 0 var(--amber); }
 /* Marked moves keep their tint; selection shows as a frame on them. */
+.review-moves .move-row.row-inaccuracy { background: rgba(170, 160, 40, .14); }
 .review-moves .move-row.row-mistake { background: rgba(212, 138, 54, .16); }
 .review-moves .move-row.row-blunder { background: rgba(184, 91, 78, .18); }
 .review-moves .move-row.row-only { background: rgba(47, 109, 181, .13); }

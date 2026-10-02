@@ -40,9 +40,9 @@ export type ReviewGame = { title: string; details: string; side: Side; depth: nu
 // is the row of your move it belongs to (the move about to come, for a reply).
 export type ReviewStep = { kind: 'start' | 'reply' | 'yours' | 'master'; fen: string; moveIndex: number; ply: number; san: string | null; lastMove: LastMove | null }
 
-export const markClasses: Record<MoveMark, string> = { '?': 'mark-mistake', '??': 'mark-blunder', '!': 'mark-only' }
+export const markClasses: Record<MoveMark, string> = { '?!': 'mark-inaccuracy', '?': 'mark-mistake', '??': 'mark-blunder', '!': 'mark-only' }
 // Tints for the move-list rows of marked moves.
-export const markRowClasses: Record<MoveMark, string> = { '?': 'row-mistake', '??': 'row-blunder', '!': 'row-only' }
+export const markRowClasses: Record<MoveMark, string> = { '?!': 'row-inaccuracy', '?': 'row-mistake', '??': 'row-blunder', '!': 'row-only' }
 
 export function plyLabel(ply: number) {
   return `${Math.floor(ply / 2) + 1}${ply % 2 === 1 ? '...' : '.'}`

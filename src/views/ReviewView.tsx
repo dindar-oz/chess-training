@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { moveMark } from '../../shared/badges.ts'
 import type { ChallengeSnapshot } from '../challenges/types'
 import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
@@ -44,7 +45,12 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
     const result = await readApiResponse<TrainingReview>(response)
     if (!response.ok) throw new Error(result.error ?? 'Could not load this game.')
     const details = ['Training', new Date(result.completedAt).toLocaleDateString(), result.timeControl, `you played ${sideName(result.side)}`]
-    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy: result.learnerAccuracy, moves: result.moves, others: [] }
+    // Marks come from the saved scores where there are some, so sessions saved
+    // before a mark existed (such as ?!) get it too; older ones keep theirs.
+    const moves = result.moves.map((move) => move.bestScore !== null && move.bestScore !== undefined && move.attemptedScore !== null && move.attemptedScore !== undefined
+      ? { ...move, mark: moveMark({ best: move.bestScore, attempted: move.attemptedScore, second: null, playedBest: false }) }
+      : move)
+    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy: result.learnerAccuracy, moves, others: [] }
   }
   const [response, others] = await Promise.all([fetch(`/api/challenges/${source.challengeId}`), loadOthers(source.challengeId)])
   const result = await readApiResponse<ChallengeSnapshot>(response)
@@ -63,7 +69,7 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
 function ReviewSummary({ game, plotShown, onTogglePlot }: { game: ReviewGame; plotShown: boolean; onTogglePlot: (() => void) | null }) {
   const matched = game.moves.filter((move) => move.correct).length
   const count = (mark: string) => game.moves.filter((move) => move.mark === mark).length
-  const marks = [{ mark: '??' as const, label: 'BLUNDERS' }, { mark: '?' as const, label: 'MISTAKES' }, { mark: '!' as const, label: 'ONLY MOVES' }]
+  const marks = [{ mark: '??' as const, label: 'BLUNDERS' }, { mark: '?' as const, label: 'MISTAKES' }, { mark: '?!' as const, label: 'INACCURACIES' }, { mark: '!' as const, label: 'ONLY MOVES' }]
   return <div className="review-summary">
     {game.accuracy !== null && <div><strong>{Math.round(game.accuracy)}%</strong><span>ACCURACY</span></div>}
     <div><strong>{matched} / {game.moves.length}</strong><span>MATCHED THE MASTER</span></div>

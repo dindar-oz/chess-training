@@ -163,7 +163,8 @@ export function AccuracyPlot({ moves, others, position, onSelectMove }: Accuracy
         {position !== null && <line className="plot-position" x1={x(Math.max(0, position))} x2={x(Math.max(0, position))} y1={margin.top} y2={margin.top + plotHeight} />}
         {hover !== null && <line className="plot-crosshair" x1={x(hover)} x2={x(hover)} y1={margin.top} y2={margin.top + plotHeight} />}
         {drawOrder.map((line) => <path key={line.id} className={`plot-line ${line.kind}`} d={path(line.values)} />)}
-        {you && moves.map((move, index) => move.mark && move.mark !== '!' && you.values[index] !== null
+        {/* Only mistakes and blunders: inaccuracies are too common to dot the line with. */}
+        {you && moves.map((move, index) => (move.mark === '?' || move.mark === '??') && you.values[index] !== null
           && <circle key={move.ply} className={`plot-mark ${move.mark === '??' ? 'blunder' : 'mistake'}`} cx={x(index)} cy={y(you.values[index]!)} r={4} />)}
         {ends.map((end) => <g key={end.line.id}>
           <circle className={`plot-end ${end.line.kind}`} cx={x(end.index)} cy={y(end.value)} r={4} />

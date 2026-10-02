@@ -3,7 +3,7 @@ import { accuracyFromCpl, winningChances } from './accuracy.ts'
 
 export type BadgeId =
   | 'first-game' | 'first-challenge' | 'challenge-streak-3' | 'challenge-streak-5' | 'challenge-streak-10'
-  | 'beat-master' | 'beat-master-3' | 'outplay-master' | 'no-blunders' | 'no-mistakes' | 'only-moves-3'
+  | 'beat-master' | 'beat-master-3' | 'outplay-master' | 'no-blunders' | 'no-mistakes' | 'no-inaccuracies' | 'only-moves-3'
 
 export type BadgeDefinition = {
   id: BadgeId
@@ -26,8 +26,9 @@ export const streakBadges: Array<{ length: number; id: BadgeId }> = [
 
 // The engine badges only count challenges reviewed at least this deep.
 export const minBadgeDepth = 21
-// Drops in winning chances (on the -1..1 scale above) that make a move a
-// mistake (?) or a blunder (??), as on lichess.
+// Drops in winning chances (on the -1..1 scale above) that make a move an
+// inaccuracy (?!), a mistake (?) or a blunder (??), as on lichess.
+export const inaccuracyDrop = 0.1
 export const mistakeDrop = 0.2
 export const blunderDrop = 0.3
 // An only move (!): the engine's best move, where the second-best move loses
@@ -111,6 +112,13 @@ export const badgeDefinitions: BadgeDefinition[] = [
     xp: 150,
   },
   {
+    id: 'no-inaccuracies',
+    name: 'Immaculate',
+    description: 'Finished a challenge without a single inaccuracy (?!), mistake or blunder, reviewed at depth 21 or more.',
+    hint: 'Finish a challenge with review depth 21 or more without an inaccuracy (?!), a mistake (?) or a blunder (??).',
+    xp: 300,
+  },
+  {
     id: 'only-moves-3',
     name: 'Sharp Eye',
     description: 'Found 3 only moves (!) in one challenge reviewed at depth 21 or more.',
@@ -175,17 +183,18 @@ function chanceDrop(from: number, to: number) {
   return winningChances(from) - winningChances(to)
 }
 
-export type MoveMark = '!' | '?' | '??'
+export type MoveMark = '!' | '?!' | '?' | '??'
 
-// How a reviewed move is annotated: a blunder (??) or mistake (?) by the winning
-// chance it lost against the engine's best move, or an only move (!), which needs
-// the second-best score and so only appears at badge depth. Null when the move
-// is none of these or wasn't scored.
+// How a reviewed move is annotated: a blunder (??), mistake (?) or inaccuracy
+// (?!) by the winning chance it lost against the engine's best move, or an only
+// move (!), which needs the second-best score and so only appears at badge
+// depth. Null when the move is none of these or wasn't scored.
 export function moveMark(move: Pick<ReviewedMove, 'best' | 'attempted' | 'second' | 'playedBest'>): MoveMark | null {
   if (move.best === null || move.attempted === null) return null
   const drop = chanceDrop(move.best, move.attempted)
   if (drop >= blunderDrop) return '??'
   if (drop >= mistakeDrop) return '?'
+  if (drop >= inaccuracyDrop) return '?!'
   if (move.playedBest && move.second !== null && chanceDrop(move.best, move.second) >= onlyMoveGap) return '!'
   return null
 }
@@ -210,6 +219,7 @@ export function analysisBadgesFor(review: { depth: number; finished: boolean; mo
       const worstDrop = Math.max(...moves.map((move) => chanceDrop(move.best!, move.attempted!)))
       if (worstDrop < blunderDrop) badges.push('no-blunders')
       if (worstDrop < mistakeDrop) badges.push('no-mistakes')
+      if (worstDrop < inaccuracyDrop) badges.push('no-inaccuracies')
     }
   }
 

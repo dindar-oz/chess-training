@@ -84,7 +84,7 @@ type AnalysisMove = { fen: string; san: string; number: number; white: boolean; 
 // game. `analysis` is the number of moves played off the game line (0 on it).
 export type ReviewPanelContext = { fen: string; depth: number; step: ReviewStep; move: ReviewMove; analysis: number }
 
-const markNames = { '??': 'a blunder', '?': 'a mistake', '!': 'the only good move' } as const
+const markNames = { '??': 'a blunder', '?': 'a mistake', '?!': 'an inaccuracy', '!': 'the only good move' } as const
 
 // Explains the step on show: whose move it was, how it compared with the
 // master's, and its mark.
