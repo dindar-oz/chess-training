@@ -12,12 +12,14 @@ import { ChallengeProvider } from './challenges/ChallengeProvider'
 import { InvitationToasts } from './challenges/InvitationToasts'
 import { ChallengesView } from './views/ChallengesView'
 import { ResetPasswordView } from './views/ResetPasswordView'
+import { ReviewView } from './views/ReviewView'
 import { AdminNotices } from './components/AdminNotices'
 import { BadgeProvider } from './badges/BadgeProvider'
 import { UpdateBanner } from './components/UpdateBanner'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
 import type { AppView, AuthUser, GameFilter, GameRecord, SessionStat } from './types'
+import type { ReviewSource } from './review/steps'
 import './App.css'
 
 const samplePgn = `[Event "Training Game"]
@@ -32,6 +34,13 @@ const samplePgn = `[Event "Training Game"]
 13. Qa4 Bb6 14. Nbd2 Bb7 15. Ne4 Qf5 16. Bxd3 Qh5 17. Nf6+ gxf6
 18. exf6 Rg8 19. Rad1 Qxf3 20. Rxe7+ Nxe7 21. Qxd7+ Kxd7 22. Bf5+ Ke8
 23. Bd7+ Kf8 24. Bxe7# 1-0`
+
+// Where "Back" on the analysis page returns to, by the page it was opened from.
+const reviewBackLabels: Partial<Record<AppView, string>> = {
+  training: 'Back to training',
+  challenges: 'Back to challenges',
+  stats: 'Back to statistics',
+}
 
 const sampleGame: GameRecord = {
   id: 'immortal-game',
@@ -60,6 +69,9 @@ function App() {
   const [gameLoading, setGameLoading] = useState(false)
   // Bumped on every "Train" click so the training view remounts with a fresh session.
   const [trainingKey, setTrainingKey] = useState(0)
+  // The analysis page opens over the page it came from, which stays mounted
+  // (hidden) so "Back" returns to it as it was, scroll position included.
+  const [review, setReview] = useState<{ source: ReviewSource; from: AppView; scrollY: number } | null>(null)
   const selectedGame = games.find((game) => game.id === selectedGameId) ?? games[0] ?? sampleGame
 
   useEffect(() => {
@@ -128,7 +140,25 @@ function App() {
     setAuthUser(null)
     setSessionStats([])
     setTrainingKey(0)
+    setReview(null)
     setView('home')
+  }
+
+  // Every page change closes the analysis page.
+  function navigate(next: AppView) {
+    setReview(null)
+    setView(next)
+  }
+
+  function openReview(source: ReviewSource) {
+    setReview({ source, from: view, scrollY: window.scrollY })
+    window.scrollTo(0, 0)
+  }
+
+  function closeReview() {
+    const scrollY = review?.scrollY ?? 0
+    setReview(null)
+    requestAnimationFrame(() => window.scrollTo(0, scrollY))
   }
 
   async function deleteGame(gameId: string) {
@@ -155,18 +185,18 @@ function App() {
   function openTraining(gameId: string) {
     setSelectedGameId(gameId)
     setTrainingKey((key) => key + 1)
-    setView('training')
+    navigate('training')
   }
 
   if (resetToken) return <ResetPasswordView token={resetToken} onDone={() => window.location.replace('/')} />
   if (!authChecked) return <main className="auth-screen"><p className="eyebrow">REPLAY LAB</p><h1>Loading your study space.</h1></main>
   if (!authUser) return <AuthView onAuthenticated={setAuthUser} />
-  const viewProps = { user: authUser, onNavigate: setView, onLogout: () => void logout() }
+  const viewProps = { user: authUser, onNavigate: navigate, onLogout: () => void logout() }
   let page = null
-  if (view === 'stats') page = <StatsView {...viewProps} sessionStats={sessionStats} />
+  if (view === 'stats') page = <StatsView {...viewProps} sessionStats={sessionStats} onAnalyze={openReview} />
   else if (view === 'awards') page = <AwardsView {...viewProps} />
   else if (view === 'leaderboard') page = <LeaderboardView {...viewProps} />
-  else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} />
+  else if (view === 'challenges') page = <ChallengesView {...viewProps} onTrainGame={trainChallengeGame} onAnalyze={openReview} />
   else if (view === 'home') page = <HomeView {...viewProps} games={games} sessionStats={sessionStats} onTrain={openTraining} />
   else if (view === 'admin' && authUser.role === 'admin') page = <AdminView {...viewProps} gameCount={games.length} onImportFinished={loadGames} />
   else if (view !== 'training') {
@@ -188,13 +218,14 @@ function App() {
   // The training view stays mounted while hidden so a running clock or engine
   // review continues (and its result is saved) while the user browses other tabs.
   return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
-    <ChallengeProvider userId={authUser.id} onChallengeStarted={() => setView('challenges')} onChallengeCompleted={refreshAccount}>
-      <BadgeProvider onOpenAwards={() => setView('awards')} onXpChanged={refreshAccount}>
-        {page}
-        {trainingKey > 0 && <div hidden={view !== 'training'}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={setView} onStatSaved={handleStatSaved} /></div>}
-        <UpdateBanner view={view} trainingOpened={trainingKey > 0} />
-        <InvitationToasts userId={authUser.id} onAccepted={() => setView('challenges')} />
-        {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => setView('admin')} />}
+    <ChallengeProvider userId={authUser.id} onChallengeStarted={() => navigate('challenges')} onChallengeCompleted={refreshAccount}>
+      <BadgeProvider onOpenAwards={() => navigate('awards')} onXpChanged={refreshAccount}>
+        <div hidden={review !== null}>{page}</div>
+        {trainingKey > 0 && <div hidden={view !== 'training' || review !== null}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={navigate} onStatSaved={handleStatSaved} onAnalyze={openReview} /></div>}
+        {review && <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />}
+        <UpdateBanner view={view} trainingOpened={trainingKey > 0} reviewing={review !== null} />
+        <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} />
+        {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => navigate('admin')} />}
       </BadgeProvider>
     </ChallengeProvider>
   </RealtimeProvider>

@@ -10,15 +10,17 @@ type UpdateBannerProps = {
   view: AppView
   // A training session was opened since the page loaded (it may still be running).
   trainingOpened: boolean
+  // The analysis page is open; reloading would lose the lines being explored.
+  reviewing: boolean
 }
 
 // After a deploy, this page is running old code. It reloads by itself when that
 // can't interrupt anything; otherwise it asks, and never mid-game.
-export function UpdateBanner({ view, trainingOpened }: UpdateBannerProps) {
+export function UpdateBanner({ view, trainingOpened, reviewing }: UpdateBannerProps) {
   const { updateAvailable } = useRealtime()
   const { current } = useChallenges()
   const challengeActive = current !== null && activeChallengeStatuses.includes(current.snapshot.status)
-  const safeToReload = updateAvailable && safeViews.includes(view) && !trainingOpened && !challengeActive
+  const safeToReload = updateAvailable && safeViews.includes(view) && !trainingOpened && !reviewing && !challengeActive
 
   useEffect(() => {
     if (safeToReload) window.location.reload()

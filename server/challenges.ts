@@ -858,7 +858,7 @@ function history(userId: string) {
   return database.prepare(`
     SELECT challenges.id, challenges.status, challenges.game_title AS gameTitle, challenges.completed_at AS completedAt, challenges.created_at AS createdAt,
       challenges.base_seconds AS baseSeconds, challenges.increment_seconds AS incrementSeconds,
-      challenge_players.rank, challenge_players.elo_before AS eloBefore, challenge_players.elo_after AS eloAfter, challenge_players.accuracy,
+      challenge_players.rank, challenge_players.elo_before AS eloBefore, challenge_players.elo_after AS eloAfter, challenge_players.accuracy, challenge_players.moves_played AS movesPlayed,
       (SELECT COUNT(*) FROM challenge_players others WHERE others.challenge_id = challenges.id AND others.invite_status IN ('creator', 'accepted')) AS players
     FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status IN ('complete', 'void')

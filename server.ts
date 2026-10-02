@@ -144,6 +144,12 @@ try {
   // Existing databases may already have the end_reason column.
 }
 try {
+  // A training session's moves for the analysis page, as JSON (see parseTrainingReview).
+  database.exec('ALTER TABLE training_sessions ADD COLUMN review TEXT')
+} catch {
+  // Existing databases may already have the review column.
+}
+try {
   database.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'")
 } catch {
   // Existing databases may already have the role column.
@@ -226,6 +232,30 @@ function requireAdmin(request: import('node:http').IncomingMessage, response: im
 
 function isLockedAdmin(username: string) {
   return adminUsernames.has(username.toLowerCase())
+}
+
+// A training session's moves can make its stats submission larger than other requests.
+const maxStatsBytes = 512 * 1024
+const reviewMarks = new Set(['?', '??', '!'])
+
+// The moves of a training session for the analysis page, checked field by field
+// and stored as JSON: the review depth, and per move the position before it,
+// your move and the master's (SAN and UCI), whether they matched, and its mark.
+// Null when missing or malformed, so the session is saved without them.
+function parseTrainingReview(value: unknown) {
+  if (!value || typeof value !== 'object') return null
+  const { depth, moves } = value as { depth?: unknown; moves?: unknown }
+  if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < 1 || depth > 40 || !Array.isArray(moves) || moves.length === 0 || moves.length > 500) return null
+  const text = (field: unknown, maxLength: number) => typeof field === 'string' && field.length > 0 && field.length <= maxLength
+  const uci = (field: unknown) => typeof field === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(field)
+  const clean = []
+  for (const move of moves as Array<Record<string, unknown>>) {
+    if (!move || typeof move !== 'object' || !Number.isInteger(move.ply) || !text(move.fen, 100) || !text(move.attempted, 10) || !text(move.expected, 10)
+      || !uci(move.attemptedUci) || !uci(move.expectedUci) || typeof move.correct !== 'boolean') return null
+    const mark = typeof move.mark === 'string' && reviewMarks.has(move.mark) ? move.mark : null
+    clean.push({ ply: move.ply, fen: move.fen, attempted: move.attempted, expected: move.expected, attemptedUci: move.attemptedUci, expectedUci: move.expectedUci, correct: move.correct, mark })
+  }
+  return JSON.stringify({ depth, moves: clean })
 }
 
 // Idempotent per session_id so a retried /api/stats submission cannot double-award XP.
@@ -478,8 +508,27 @@ const server = createServer(async (request, response) => {
       sendJson(response, 401, { error: 'Authentication required.' })
       return
     }
-    const rows = database.prepare('SELECT id, game_id AS gameId, game_title AS gameTitle, side, attempted_moves AS attemptedMoves, correct_moves AS correctMoves, deviations, learner_accuracy AS learnerAccuracy, original_accuracy AS originalAccuracy, average_cpl AS averageCpl, time_control AS timeControl, end_reason AS endReason, completed_at AS completedAt FROM training_sessions WHERE user_id = ? ORDER BY completed_at DESC').all(user.id)
-    sendJson(response, 200, rows)
+    // hasReview: the moves were saved, so the analysis page can open the session;
+    // a challenge's row reads them from the challenge.
+    const rows = database.prepare("SELECT id, game_id AS gameId, game_title AS gameTitle, side, attempted_moves AS attemptedMoves, correct_moves AS correctMoves, deviations, learner_accuracy AS learnerAccuracy, original_accuracy AS originalAccuracy, average_cpl AS averageCpl, time_control AS timeControl, end_reason AS endReason, completed_at AS completedAt, review IS NOT NULL OR id LIKE 'challenge-%' AS hasReview FROM training_sessions WHERE user_id = ? ORDER BY completed_at DESC").all(user.id) as Array<Record<string, unknown>>
+    sendJson(response, 200, rows.map((row) => ({ ...row, hasReview: row.hasReview === 1 })))
+    return
+  }
+
+  const reviewMatch = request.method === 'GET' ? request.url?.match(/^\/api\/stats\/([^/]+)\/review$/) : null
+  if (reviewMatch) {
+    const user = currentUser(request)
+    if (!user) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    const row = database.prepare('SELECT game_title AS gameTitle, side, completed_at AS completedAt, time_control AS timeControl, learner_accuracy AS learnerAccuracy, review FROM training_sessions WHERE id = ? AND user_id = ?').get(decodeURIComponent(reviewMatch[1]), user.id) as { review: string | null } | undefined
+    if (!row?.review) {
+      sendJson(response, 404, { error: 'The moves of this session were not saved.' })
+      return
+    }
+    const { review, ...session } = row
+    sendJson(response, 200, { ...session, ...JSON.parse(review) })
     return
   }
 
@@ -522,14 +571,14 @@ const server = createServer(async (request, response) => {
       return
     }
     try {
-      const body = await readJson(request)
+      const body = await readJson(request, maxStatsBytes)
       const sessionId = String(body.id)
       const correctMoves = Number(body.correctMoves) || 0
       const deviations = Number(body.deviations) || 0
       const attemptedMoves = Number(body.attemptedMoves) || 0
       const timeControl = typeof body.timeControl === 'string' && /^\d{1,3}\+\d{1,2}$/.test(body.timeControl) ? body.timeControl : null
       const endReason = body.endReason === 'timeout' ? 'timeout' : 'completed'
-      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, time_control, end_reason, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, timeControl, endReason, String(body.completedAt))
+      database.prepare('INSERT OR REPLACE INTO training_sessions (id, user_id, game_id, game_title, side, attempted_moves, correct_moves, deviations, learner_accuracy, original_accuracy, average_cpl, time_control, end_reason, completed_at, review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(sessionId, user.id, String(body.gameId), String(body.gameTitle), String(body.side), attemptedMoves, correctMoves, deviations, (body.learnerAccuracy as number | null) ?? null, (body.originalAccuracy as number | null) ?? null, (body.averageCpl as number | null) ?? null, timeControl, endReason, String(body.completedAt), parseTrainingReview(body.review))
       const { xpGained, totalXp } = awardXp(user.id, sessionId, correctMoves, deviations, attemptedMoves, endReason === 'completed')
       awardBadge(user.id, 'first-game')
       sendJson(response, 200, { ok: true, xpGained, totalXp })

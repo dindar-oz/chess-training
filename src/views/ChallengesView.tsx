@@ -11,6 +11,7 @@ import type { ChallengeSnapshot } from '../challenges/types'
 import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
 import { readApiResponse } from '../types'
+import type { ReviewSource } from '../review/steps'
 import type { AppView, AuthUser } from '../types'
 
 type ChallengesViewProps = {
@@ -18,9 +19,11 @@ type ChallengesViewProps = {
   onNavigate: (view: AppView) => void
   onLogout: () => void
   onTrainGame: (gameId: string) => void
+  onAnalyze: (source: ReviewSource) => void
 }
 
-export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: ChallengesViewProps) {
+export function ChallengesView({ user, onNavigate, onLogout, onTrainGame, onAnalyze }: ChallengesViewProps) {
+  const analyzeChallenge = (challengeId: string) => onAnalyze({ kind: 'challenge', challengeId })
   const { current, analysisRun, retryAnalysis, dismiss } = useChallenges()
   const [viewing, setViewing] = useState<ChallengeSnapshot | null>(null)
   const [viewError, setViewError] = useState('')
@@ -48,9 +51,9 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
     </>
   }
   else if (snapshot && (snapshot.status === 'analyzing' || snapshot.status === 'complete' || snapshot.status === 'void')) {
-    body = <ChallengeResults challenge={snapshot} userId={user.id} analysisRun={analysisRun?.challengeId === snapshot.id ? analysisRun : null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onClose={dismiss} closeLabel="New challenge" showChat receivedAt={current?.receivedAt} />
+    body = <ChallengeResults challenge={snapshot} userId={user.id} analysisRun={analysisRun?.challengeId === snapshot.id ? analysisRun : null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={dismiss} closeLabel="New challenge" showChat receivedAt={current?.receivedAt} />
   } else if (viewing) {
-    body = <ChallengeResults challenge={viewing} userId={user.id} analysisRun={null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onClose={() => setViewing(null)} closeLabel="← Back to challenges" showChat={false} />
+    body = <ChallengeResults challenge={viewing} userId={user.id} analysisRun={null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={() => setViewing(null)} closeLabel="← Back to challenges" showChat={false} />
   } else {
     body = <>
       <section className="challenge-lobby">
@@ -68,7 +71,7 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame }: Chal
       </section>
       {creating && <NewChallengeDialog user={user} kind={creating} onClose={() => setCreating(null)} />}
       {viewError && <p className="admin-error">{viewError}</p>}
-      <ChallengeHistory refreshKey={`${user.elo}`} onOpen={(id) => void openPast(id)} />
+      <ChallengeHistory refreshKey={`${user.elo}`} onOpen={(id) => void openPast(id)} onAnalyze={analyzeChallenge} />
     </>
   }
 
