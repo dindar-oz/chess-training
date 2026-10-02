@@ -47,6 +47,12 @@ function formatPercent(value: number | null) {
   return value === null ? '—' : `${Math.round(value)}%`
 }
 
+// A move's own accuracy and loss, e.g. "34% · lost 1.05".
+function ownMove(move: ReviewMove) {
+  if (move.cpl === null || move.cpl === undefined) return null
+  return `${accuracyFromCpl(move.cpl)}% · lost ${(move.cpl / 100).toFixed(2)}`
+}
+
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(560)
@@ -139,9 +145,10 @@ export function AccuracyPlot({ moves, others, position, onSelectMove }: Accuracy
       <button className="text-button" onClick={() => setShowTable(!showTable)}>{showTable ? 'Show plot' : 'Show table'}</button>
     </div>
     {showTable ? <div className="plot-table-wrap"><table className="plot-table">
-      <thead><tr><th>Move</th>{series.map((line) => <th key={line.id}>{line.name}</th>)}</tr></thead>
+      <thead><tr><th>Move</th><th>This move</th>{series.map((line) => <th key={line.id}>{line.name}</th>)}</tr></thead>
       <tbody>{moves.map((move, index) => <tr key={move.ply} onClick={() => onSelectMove(index)}>
         <td>{plyLabel(move.ply)} {move.attempted}{move.mark}</td>
+        <td>{ownMove(move) ?? '—'}</td>
         {series.map((line) => <td key={line.id}>{formatPercent(line.values[index])}</td>)}
       </tr>)}</tbody>
     </table></div>
@@ -164,12 +171,12 @@ export function AccuracyPlot({ moves, others, position, onSelectMove }: Accuracy
         </g>)}
       </svg>
       {hover !== null && hoverMove && <div className={`plot-tooltip ${x(hover) > width / 2 ? 'left' : 'right'}`} style={{ left: x(hover) }}>
-        <p>{plyLabel(hoverMove.ply)} {hoverMove.attempted}{hoverMove.mark}</p>
+        <p>{plyLabel(hoverMove.ply)} {hoverMove.attempted}{hoverMove.mark}{ownMove(hoverMove) && <> · this move {ownMove(hoverMove)}</>}</p>
         {[...series].sort((a, b) => kindOrder[a.kind] - kindOrder[b.kind] || (b.values[hover] ?? -1) - (a.values[hover] ?? -1)).map((line) => <div key={line.id}>
           <i className={`plot-key ${line.kind}`} /><strong>{formatPercent(line.values[hover])}</strong><span>{line.name}</span>
         </div>)}
       </div>}
     </div>}
-    <p className="plot-note">Running accuracy after each of your moves. ● marks your mistakes and blunders. Click the plot to jump to a move.</p>
+    <p className="plot-note">Running accuracy after each of your moves ("this move" is the move's own accuracy and the pawns it lost). ● marks your mistakes and blunders. Click the plot to jump to a move.</p>
   </div>
 }

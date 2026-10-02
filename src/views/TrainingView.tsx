@@ -218,6 +218,8 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved, onAn
         mark: result ? moveMark({ best: scoreValue(result.best), attempted: scoreValue(result.attemptedScore), second: null, playedBest: false }) : null,
         cpl: result?.attemptedCpl ?? null,
         originalCpl: result?.originalCpl ?? null,
+        bestScore: result ? scoreValue(result.best) : null,
+        attemptedScore: result ? scoreValue(result.attemptedScore) : null,
       }
     })
     const sessionId = stat.id

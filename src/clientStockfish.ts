@@ -1,113 +1,43 @@
 import { scoreValue } from '../shared/accuracy.ts'
 import type { EngineScore } from '../shared/accuracy.ts'
+import { EngineChannel } from '../shared/engineChannel.ts'
+import type { SearchProgress, SearchResult, StartEngine } from '../shared/engineChannel.ts'
 
 export type { EngineScore }
 export type EnginePhase = 'best' | 'original' | 'attempted'
+// Progress of a live search: the deepest depth reached so far, best line first.
+export type LiveAnalysis = SearchProgress
 
 const ENGINE_URL = '/engine/stockfish-18-lite-single.js'
-const ANALYSIS_TIMEOUT_MS = 125_000
 
-function parseScore(line: string): EngineScore | null {
-  const match = line.match(/score (cp|mate) (-?\d+)/)
-  if (!match) return null
-  return match[1] === 'cp'
-    ? { cp: Number(match[2]), mate: null }
-    : { cp: null, mate: Number(match[2]) }
+// Stockfish in a Web Worker, behind the engine channel (see engineChannel.ts
+// for how searches are isolated, timed out, checked and retried).
+const startWorker: StartEngine = (onLine, onCrash) => {
+  const worker = new Worker(ENGINE_URL)
+  worker.addEventListener('message', (event: MessageEvent) => onLine(String(event.data)))
+  worker.addEventListener('error', (event) => onCrash(event.message))
+  worker.addEventListener('messageerror', () => onCrash('unreadable message'))
+  return { send: (command) => worker.postMessage(command), terminate: () => worker.terminate() }
 }
 
-// One Worker for the page's whole lifetime, created lazily on first use.
-// React StrictMode mounts components twice in development and tears the first
-// one down; if the engine were created per component instance, that teardown
-// could abort a Worker mid-handshake right as a second one starts loading the
-// same multi-megabyte WASM file. A module-level singleton sidesteps that
-// entirely, matching how the Node backend already keeps one persistent engine.
-let sharedWorker: Worker | null = null
-let sharedReady: Promise<void> | null = null
-// The queue is shared too: the worker can run only one search at a time, and solo
-// reviews and challenge analysis may use separate engine instances concurrently.
-let sharedQueue: Promise<unknown> = Promise.resolve()
-
-// A finished search: the score of each principal line, best first (MultiPV), and
-// the move the engine would play.
-type SearchResult = { lines: Array<EngineScore | undefined>; bestUci: string | null }
-
-// A principal line: its score for the side to move and its moves in UCI.
-export type EngineLine = { score: EngineScore; pv: string[] }
-// Progress of a live search: the deepest depth reached so far, best line first.
-export type LiveAnalysis = { depth: number; lines: EngineLine[]; done: boolean }
+// One channel, and so one engine, for the page's whole lifetime, created on
+// the first search. React StrictMode mounts components twice in development
+// and tears the first one down; an engine per component instance could be
+// aborted mid-load right as a second one starts loading the same
+// multi-megabyte WASM file. Every instance of the class below shares it, so
+// solo reviews and challenge analysis also take turns on it.
+const channel = new EngineChannel(startWorker)
 
 // Results are cached by depth, position and move, so searches run in the
 // background during a session are reused instantly by the end-of-game review.
 // A prefetch is skipped when its turn comes if it has gone stale (the session
 // was abandoned) and nothing else has asked for the same search meanwhile.
+// Only checked results are cached; a failed search is retried when asked again.
 type CacheEntry = { promise: Promise<SearchResult>; needed: boolean }
 const resultCache = new Map<string, CacheEntry>()
 const maxCachedResults = 4000
 
-class StaleAnalysisError extends Error {}
-
-function getSharedEngine() {
-  if (!sharedWorker) {
-    const worker = new Worker(ENGINE_URL)
-    sharedWorker = worker
-    sharedReady = new Promise((resolve, reject) => {
-      const onMessage = (event: MessageEvent<string>) => {
-        if (event.data === 'uciok') {
-          worker.postMessage('isready')
-        } else if (event.data === 'readyok') {
-          worker.removeEventListener('message', onMessage)
-          resolve()
-        }
-      }
-      worker.addEventListener('message', onMessage)
-      worker.addEventListener('error', (event) => reject(new Error(event.message)), { once: true })
-      worker.postMessage('uci')
-    })
-  }
-  return { worker: sharedWorker, ready: sharedReady! }
-}
-
 export class ClientStockfishEngine {
-  private worker: Worker
-  private ready: Promise<void>
-
-  constructor() {
-    const shared = getSharedEngine()
-    this.worker = shared.worker
-    this.ready = shared.ready
-  }
-
-  // One search of `multipv` principal lines (the best `multipv` moves), or of the
-  // single move `moveUci` when given. The option is set on every search because
-  // the worker is shared.
-  private search(fen: string, depth: number, moveUci: string | undefined, multipv: number): Promise<SearchResult> {
-    return this.ready.then(() => new Promise<SearchResult>((resolve, reject) => {
-      const lines: Array<EngineScore | undefined> = []
-      const timeout = window.setTimeout(() => {
-        this.worker.removeEventListener('message', onMessage)
-        reject(new Error('Engine analysis timed out.'))
-      }, ANALYSIS_TIMEOUT_MS)
-
-      const onMessage = (event: MessageEvent<string>) => {
-        const line = event.data
-        const score = parseScore(line)
-        if (score) lines[Number(line.match(/ multipv (\d+)/)?.[1] ?? 1) - 1] = score
-        if (line.startsWith('bestmove')) {
-          window.clearTimeout(timeout)
-          this.worker.removeEventListener('message', onMessage)
-          const bestUci = line.split(' ')[1] ?? ''
-          if (lines[0]) resolve({ lines, bestUci: /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(bestUci) ? bestUci : null })
-          else reject(new Error('Engine returned no score.'))
-        }
-      }
-
-      this.worker.addEventListener('message', onMessage)
-      this.worker.postMessage(`setoption name MultiPV value ${multipv}`)
-      this.worker.postMessage(`position fen ${fen}`)
-      this.worker.postMessage(`go depth ${depth}${moveUci ? ` searchmoves ${moveUci}` : ''}`)
-    }))
-  }
-
   private queued(fen: string, depth: number, moveUci: string | undefined, multipv: number, isStale?: () => boolean) {
     const key = `${depth}|${fen}|${moveUci ?? '*'}${multipv > 1 ? `|top${multipv}` : ''}`
     const cached = resultCache.get(key)
@@ -116,12 +46,7 @@ export class ClientStockfishEngine {
       return cached.promise
     }
     const entry = { needed: !isStale } as CacheEntry
-    entry.promise = sharedQueue.then(() => {
-      if (!entry.needed && isStale?.()) throw new StaleAnalysisError('Skipped a stale background search.')
-      return this.search(fen, depth, moveUci, multipv)
-    })
-    sharedQueue = entry.promise.catch(() => undefined)
-    // Failed or skipped searches aren't cached, so a later request retries them.
+    entry.promise = channel.search({ fen, depth, moveUci, multipv }, () => !entry.needed && (isStale?.() ?? false))
     entry.promise.catch(() => { if (resultCache.get(key) === entry) resultCache.delete(key) })
     resultCache.set(key, entry)
     if (resultCache.size > maxCachedResults) resultCache.delete(resultCache.keys().next().value!)
@@ -129,13 +54,13 @@ export class ClientStockfishEngine {
   }
 
   analyze(fen: string, depth: number, moveUci?: string) {
-    return this.queued(fen, depth, moveUci, 1).then((result) => result.lines[0]!)
+    return this.queued(fen, depth, moveUci, 1).then((result) => result.lines[0].score)
   }
 
   // The best move's score, the second-best move's (null with only one legal
   // move), and the best move itself. Used where only moves (!) are judged.
   analyzeTopTwo(fen: string, depth: number) {
-    return this.queued(fen, depth, undefined, 2).then((result) => ({ best: result.lines[0]!, second: result.lines[1] ?? null, bestUci: result.bestUci }))
+    return this.queued(fen, depth, undefined, 2).then((result) => ({ best: result.lines[0].score, second: result.lines[1]?.score ?? null, bestUci: result.bestUci }))
   }
 
   // Queues the searches compare() will need for a move: the best line, the
@@ -179,48 +104,14 @@ export class ClientStockfishEngine {
   }
 
   // Streams the best `multipv` lines of a position as the search deepens, up to
-  // `depth`, for browsing a finished challenge. It waits its turn in the shared
-  // queue; the returned function cancels it, stopping the search if it runs.
+  // `depth`, for browsing a finished game. It waits its turn like every search;
+  // the returned function cancels it, stopping the search if it runs.
   analyzeLive(fen: string, depth: number, multipv: number, onUpdate: (update: LiveAnalysis) => void) {
-    let cancelled = false
-    let running = false
-    const run = sharedQueue.then(() => cancelled ? undefined : this.ready.then(() => new Promise<void>((resolve) => {
-      running = true
-      const lines: EngineLine[] = []
-      let reached = 0
-      const onMessage = (event: MessageEvent<string>) => {
-        const line = event.data
-        // Bound scores are provisional; the exact one follows.
-        if (line.startsWith('info') && !/ (lower|upper)bound/.test(line)) {
-          const score = parseScore(line)
-          const pv = line.match(/ pv (.+)$/)?.[1].trim().split(' ')
-          if (score && pv && !cancelled) {
-            lines[Number(line.match(/ multipv (\d+)/)?.[1] ?? 1) - 1] = { score, pv }
-            reached = Math.max(reached, Number(line.match(/ depth (\d+)/)?.[1] ?? 0))
-            onUpdate({ depth: reached, lines: lines.filter(Boolean), done: false })
-          }
-        }
-        if (line.startsWith('bestmove')) {
-          this.worker.removeEventListener('message', onMessage)
-          running = false
-          if (!cancelled) onUpdate({ depth: reached, lines: lines.filter(Boolean), done: true })
-          resolve()
-        }
-      }
-      this.worker.addEventListener('message', onMessage)
-      this.worker.postMessage(`setoption name MultiPV value ${multipv}`)
-      this.worker.postMessage(`position fen ${fen}`)
-      this.worker.postMessage(`go depth ${depth}`)
-    })))
-    sharedQueue = run.catch(() => undefined)
-    return () => {
-      cancelled = true
-      if (running) this.worker.postMessage('stop')
-    }
+    return channel.live({ fen, depth, multipv }, onUpdate)
   }
 
   terminate() {
-    // No-op: the worker is a page-lifetime singleton shared across every
-    // instance of this class, so no single component's cleanup should kill it.
+    // No-op: the engine is shared by every instance of this class for the
+    // page's lifetime, so no single component's cleanup should end it.
   }
 }
