@@ -5,8 +5,8 @@ import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
 import { AccuracyPlot } from '../review/AccuracyPlot'
 import { ReviewBoard } from '../review/ReviewBoard'
-import { hasAccuracyData, markClasses } from '../review/steps'
-import type { OtherPlayerProgress, ReviewGame, ReviewMove, ReviewSource } from '../review/steps'
+import { hasAccuracyData, hasSavedScores, markClasses } from '../review/steps'
+import type { MarkCoverage, OtherPlayerProgress, ReviewGame, ReviewMove, ReviewSource } from '../review/steps'
 import { readStored, writeStored } from '../storage'
 import { formatTimeControl } from '../timeControl'
 import { readApiResponse } from '../types'
@@ -47,10 +47,11 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
     const details = ['Training', new Date(result.completedAt).toLocaleDateString(), result.timeControl, `you played ${sideName(result.side)}`]
     // Marks come from the saved scores where there are some, so sessions saved
     // before a mark existed (such as ?!) get it too; older ones keep theirs.
-    const moves = result.moves.map((move) => move.bestScore !== null && move.bestScore !== undefined && move.attemptedScore !== null && move.attemptedScore !== undefined
-      ? { ...move, mark: moveMark({ best: move.bestScore, attempted: move.attemptedScore, second: null, playedBest: false }) }
+    const moves = result.moves.map((move) => hasSavedScores(move)
+      ? { ...move, mark: moveMark({ best: move.bestScore!, attempted: move.attemptedScore!, second: null, playedBest: false }) }
       : move)
-    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy: result.learnerAccuracy, moves, others: [] }
+    const marks: MarkCoverage = moves.some(hasSavedScores) ? 'all' : 'no-inaccuracies'
+    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy: result.learnerAccuracy, moves, others: [], marks }
   }
   const [response, others] = await Promise.all([fetch(`/api/challenges/${source.challengeId}`), loadOthers(source.challengeId)])
   const result = await readApiResponse<ChallengeSnapshot>(response)
@@ -60,22 +61,34 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
   const title = game?.white && game.black ? `${game.white} vs ${game.black}` : game?.title ?? 'Challenge'
   const details = ['Challenge', game?.event, game?.date, formatTimeControl(result.timeControl), `you played ${sideName(result.side)}`]
   const accuracy = result.players.find((player) => player.playerId === result.me!.playerId)?.result?.accuracy ?? null
-  return { title, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy, moves: result.me.moves, others }
+  // A challenge's marks are worked out from its saved scores; without them it has none.
+  const marks: MarkCoverage = result.me.moves.some(hasSavedScores) ? 'all' : 'none'
+  return { title, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy, moves: result.me.moves, others, marks }
+}
+
+const markNotes: Record<Exclude<MarkCoverage, 'all'>, string> = {
+  none: 'This game was analysed before move evaluations were saved, so its moves have no marks (?!, ?, ??, !).',
+  'no-inaccuracies': 'This game was saved before inaccuracies (?!) were marked, so only its mistakes and blunders are.',
 }
 
 // The summary strip under the title: accuracy, matched moves and the marks,
 // which double as the legend for the move list, then the plot toggle (when the
-// moves carry the numbers it needs).
+// moves carry the numbers it needs). A mark the game was never judged for
+// shows "—", not 0, with a note saying why.
 function ReviewSummary({ game, plotShown, onTogglePlot }: { game: ReviewGame; plotShown: boolean; onTogglePlot: (() => void) | null }) {
   const matched = game.moves.filter((move) => move.correct).length
   const count = (mark: string) => game.moves.filter((move) => move.mark === mark).length
   const marks = [{ mark: '??' as const, label: 'BLUNDERS' }, { mark: '?' as const, label: 'MISTAKES' }, { mark: '?!' as const, label: 'INACCURACIES' }, { mark: '!' as const, label: 'ONLY MOVES' }]
-  return <div className="review-summary">
-    {game.accuracy !== null && <div><strong>{Math.round(game.accuracy)}%</strong><span>ACCURACY</span></div>}
-    <div><strong>{matched} / {game.moves.length}</strong><span>MATCHED THE MASTER</span></div>
-    {marks.map(({ mark, label }) => <div key={mark}><strong><b className={markClasses[mark]}>{mark}</b> {count(mark)}</strong><span>{label}</span></div>)}
-    {onTogglePlot && <button className={`table-action ${plotShown ? '' : 'secondary'} plot-toggle`} aria-pressed={plotShown} onClick={onTogglePlot}><span className="button-icon" aria-hidden="true">↗</span> {plotShown ? 'Hide accuracy plot' : 'Show accuracy plot'}</button>}
-  </div>
+  const judged = (mark: string) => game.marks === 'all' || (game.marks === 'no-inaccuracies' && mark !== '?!')
+  return <>
+    <div className="review-summary">
+      {game.accuracy !== null && <div><strong>{Math.round(game.accuracy)}%</strong><span>ACCURACY</span></div>}
+      <div><strong>{matched} / {game.moves.length}</strong><span>MATCHED THE MASTER</span></div>
+      {marks.map(({ mark, label }) => <div key={mark} className={judged(mark) ? '' : 'not-judged'}><strong><b className={markClasses[mark]}>{mark}</b> {judged(mark) ? count(mark) : '—'}</strong><span>{label}</span></div>)}
+      {onTogglePlot && <button className={`table-action ${plotShown ? '' : 'secondary'} plot-toggle`} aria-pressed={plotShown} onClick={onTogglePlot}><span className="button-icon" aria-hidden="true">↗</span> {plotShown ? 'Hide accuracy plot' : 'Show accuracy plot'}</button>}
+    </div>
+    {game.marks !== 'all' && <p className="review-marks-note">{markNotes[game.marks]}</p>}
+  </>
 }
 
 // The analysis page of a finished training session or challenge: your moves

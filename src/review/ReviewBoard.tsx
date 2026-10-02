@@ -8,7 +8,7 @@ import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
 import { StepCaption } from './StepCaption'
 import { accuracyFromCpl } from '../../shared/accuracy.ts'
-import { markClasses, markRowClasses, plyLabel, reviewSteps, samePosition, savedScoreForWhite, stepMove } from './steps'
+import { hasSavedScores, markClasses, markRowClasses, plyLabel, reviewSteps, samePosition, savedScoreForWhite, stepMove } from './steps'
 import type { ReviewMove, ReviewStep } from './steps'
 
 const engineLineCount = 3
@@ -118,15 +118,14 @@ function MoveInsightPanel({ step, move, analysis }: ReviewPanelContext) {
 // live engine lines below: the move's own accuracy and loss, and the saved
 // evaluations of the best move and yours, from White's point of view.
 function SavedAnalysis({ move }: { move: ReviewMove }) {
-  const hasScores = move.bestScore !== null && move.bestScore !== undefined && move.attemptedScore !== null && move.attemptedScore !== undefined
+  const hasScores = hasSavedScores(move)
   if ((move.cpl === null || move.cpl === undefined) && !hasScores) return null
   return <dl className="saved-analysis">
     {move.cpl !== null && move.cpl !== undefined && <>
       <dt>This move</dt><dd>{accuracyFromCpl(move.cpl)}% accuracy · lost {(move.cpl / 100).toFixed(2)} pawns</dd>
     </>}
-    {hasScores && <>
-      <dt>Saved evaluation</dt><dd>best {savedScoreForWhite(move.bestScore!, move.ply)} · your move {savedScoreForWhite(move.attemptedScore!, move.ply)}</dd>
-    </>}
+    <dt>Saved evaluation</dt>
+    <dd>{hasScores ? <>best {savedScoreForWhite(move.bestScore!, move.ply)} · your move {savedScoreForWhite(move.attemptedScore!, move.ply)}</> : <span className="not-saved">not saved: this game was analysed before evaluations were kept</span>}</dd>
   </dl>
 }
 

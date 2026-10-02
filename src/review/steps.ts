@@ -31,8 +31,17 @@ export type OtherPlayerProgress = { username: string; moves: Array<{ ply: number
 export type ReviewSource = { kind: 'training'; sessionId: string } | { kind: 'challenge'; challengeId: string }
 
 // The analysis page's game: a title and detail line, your side, the engine
-// depth, your accuracy once analyzed, and your moves.
-export type ReviewGame = { title: string; details: string; side: Side; depth: number; accuracy: number | null; moves: ReviewMove[]; others: OtherPlayerProgress[] }
+// depth, your accuracy once analyzed, your moves, and which marks it has. Games
+// analysed before the scores were saved can't show them all: a challenge then
+// has no marks at all; a training session has the ? and ?? it was saved with,
+// but no ?! (inaccuracies came later).
+export type MarkCoverage = 'all' | 'none' | 'no-inaccuracies'
+export type ReviewGame = { title: string; details: string; side: Side; depth: number; accuracy: number | null; moves: ReviewMove[]; others: OtherPlayerProgress[]; marks: MarkCoverage }
+
+// Whether a move has the saved scores its mark is worked out from.
+export function hasSavedScores(move: ReviewMove) {
+  return move.bestScore !== null && move.bestScore !== undefined && move.attemptedScore !== null && move.attemptedScore !== undefined
+}
 
 // One ply of the review: the position on the board and the move that led
 // there. `kind` says whose move it was: the historical opponent's reply, your
