@@ -14,6 +14,7 @@ import { ChallengesView } from './views/ChallengesView'
 import { ResetPasswordView } from './views/ResetPasswordView'
 import { ReviewView } from './views/ReviewView'
 import { AdminNotices } from './components/AdminNotices'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { BadgeProvider } from './badges/BadgeProvider'
 import { UpdateBanner } from './components/UpdateBanner'
 import { readStored, writeStored } from './storage'
@@ -222,7 +223,9 @@ function App() {
       <BadgeProvider onOpenAwards={() => navigate('awards')} onXpChanged={refreshAccount}>
         <div hidden={review !== null}>{page}</div>
         {trainingKey > 0 && <div hidden={view !== 'training' || review !== null}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={navigate} onStatSaved={handleStatSaved} onAnalyze={openReview} /></div>}
-        {review && <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />}
+        {review && <ErrorBoundary actionLabel={`← ${reviewBackLabels[review.from] ?? 'Back'}`} onAction={closeReview}>
+          <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />
+        </ErrorBoundary>}
         <UpdateBanner view={view} trainingOpened={trainingKey > 0} reviewing={review !== null} />
         <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} />
         {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => navigate('admin')} />}

@@ -295,6 +295,7 @@ export function TrainingView({ user, selectedGame, onNavigate, onStatSaved, onAn
           <div className="board-wrap">
             <Chessboard
               options={{
+                id: 'training-board',
                 position: session.game.fen(),
                 onPieceDrop: ({ sourceSquare, targetSquare }) => session.handleMove(sourceSquare, targetSquare),
                 boardOrientation: side === 'w' ? 'white' : 'black',
