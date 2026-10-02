@@ -476,6 +476,8 @@ h1 em { color: var(--green); font-style: italic; }
 .results-moves { margin: 10px 0 24px; max-width: 460px; }
 /* Analysis page: a header with the game and its summary, then the move list,
    the board and a column of side panels (see reviewPanels). */
+/* The page's own sections read left to right (the root centres text by default). */
+.review-page-head, .review-layout, .review-hint { text-align: left; }
 .review-page-head { margin: 4px 0 26px; }
 .review-back { font-size: 12px; margin-bottom: 14px; }
 .review-title h2 { color: var(--ink); font: 600 28px/1.15 'Playfair Display', serif; margin: 0 0 6px; }
@@ -496,7 +498,8 @@ h1 em { color: var(--green); font-style: italic; }
 .mark-mistake { color: var(--amber); }
 .mark-blunder { color: var(--red); }
 .mark-only { color: #2f6db5; }
-.review-board-column { display: grid; gap: 16px; grid-area: board; justify-items: center; }
+/* One track pinned to the column, so wide content (the plot sizing itself) can't widen it and grow the board. */
+.review-board-column { display: grid; gap: 16px; grid-area: board; grid-template-columns: minmax(0, 1fr); justify-items: center; }
 /* Sized from the viewport height so the board and its controls fit on one screen. */
 .review-board { max-width: none; position: relative; width: min(100%, max(360px, calc(100vh - 230px))); }
 /* Off the game line: an amber frame and tag mark the board as analysis. */
