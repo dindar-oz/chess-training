@@ -6,6 +6,7 @@ import type { MoveMark } from '../../shared/badges.ts'
 import { ClientStockfishEngine } from '../clientStockfish'
 import type { EngineScore, LiveAnalysis } from '../clientStockfish'
 import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
+import type { LastMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
 import type { ChallengeSnapshot } from './types'
 
@@ -19,14 +20,58 @@ const shownPlies = 8
 // Finished searches by depth and position, so stepping back shows them at once.
 const finishedAnalyses = new Map<string, LiveAnalysis>()
 
-function positionAfter(move: ReviewMove) {
-  const chess = new Chess(move.fen)
-  chess.move({ from: move.attemptedUci.slice(0, 2), to: move.attemptedUci.slice(2, 4), promotion: move.attemptedUci[4] })
-  return chess.fen()
+// One ply of the review: the position on the board and the move that led
+// there. `kind` says whose move it was: the historical opponent's reply, your
+// move, or the master's move that replaced a deviation of yours; `moveIndex`
+// is the row of your move it belongs to (the move about to come, for a reply).
+type ReviewStep = { kind: 'start' | 'reply' | 'yours' | 'master'; fen: string; moveIndex: number; ply: number; san: string | null; lastMove: LastMove | null }
+
+function plyLabel(ply: number) {
+  return `${Math.floor(ply / 2) + 1}${ply % 2 === 1 ? '...' : '.'}`
 }
 
 function moveLabel(move: ReviewMove) {
-  return `${Math.floor(move.ply / 2) + 1}${move.ply % 2 === 1 ? '...' : '.'}`
+  return plyLabel(move.ply)
+}
+
+// Fens of the same position can differ in their counters and en passant field.
+function samePosition(a: string, b: string) {
+  return a.split(' ').slice(0, 3).join(' ') === b.split(' ').slice(0, 3).join(' ')
+}
+
+function playUci(fen: string, uci: string) {
+  const chess = new Chess(fen)
+  const move = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] })
+  return { fen: chess.fen(), san: move.san, lastMove: { from: move.from, to: move.to } }
+}
+
+// The legal move from `fen` that reaches `target`, if any.
+function findMove(fen: string, target: string) {
+  const chess = new Chess(fen)
+  for (const move of chess.moves({ verbose: true })) {
+    if (samePosition(move.after, target)) return { san: move.san, lastMove: { from: move.from, to: move.to } }
+  }
+  return null
+}
+
+// The challenge one ply at a time: before each of your moves the opponent's
+// reply, then your move, then (where you deviated) the master's move instead.
+function reviewSteps(moves: ReviewMove[]) {
+  const steps: ReviewStep[] = []
+  let previous: string | null = null
+  moves.forEach((move, moveIndex) => {
+    const reply = previous ? findMove(previous, move.fen) : null
+    steps.push({ kind: moveIndex === 0 ? 'start' : 'reply', fen: move.fen, moveIndex, ply: move.ply - 1, san: reply?.san ?? null, lastMove: reply?.lastMove ?? null })
+    const yours = playUci(move.fen, move.attemptedUci)
+    steps.push({ kind: 'yours', fen: yours.fen, moveIndex, ply: move.ply, san: yours.san, lastMove: yours.lastMove })
+    previous = yours.fen
+    if (!move.correct) {
+      const master = playUci(move.fen, move.expectedUci)
+      steps.push({ kind: 'master', fen: master.fen, moveIndex, ply: move.ply, san: master.san, lastMove: master.lastMove })
+      previous = master.fen
+    }
+  })
+  return steps
 }
 
 // Engine scores are for the side to move; the panel shows them for White.
@@ -95,35 +140,37 @@ function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
 // A move played on the review board, away from the challenge line.
 type AnalysisMove = { fen: string; san: string; number: number; white: boolean; from: string; to: string }
 
-// Steps through a player's own challenge moves on a board: each step shows the
-// position after their move, with an arrow for the master's move where they
-// deviated, and the engine's view of that position. Moves played on the board
-// branch into an analysis line from the step on show; the challenge position
-// it left comes back with "Return to challenge position" (or a row click).
+// Steps through a player's challenge one ply at a time on a board: the
+// opponent's replies, their own moves, with an arrow for the master's move
+// where they deviated, and then that master's move. The engine gives its view
+// of each position. Moves played on the board branch into an analysis line
+// from the step on show; the challenge position it left comes back with
+// "Return to challenge position" (or a row click).
 export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; side: Side; depth: number }) {
-  // -1 is the position before the player's first move.
-  const [index, setIndex] = useState(-1)
+  const steps = useMemo(() => reviewSteps(moves), [moves])
+  const [index, setIndex] = useState(0)
   // The analysis line from the step on show and how many of its moves are on
   // the board (at least one); null while the board follows the challenge.
   const [analysis, setAnalysis] = useState<{ moves: AnalysisMove[]; shown: number } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const positions = useMemo(() => moves.map(positionAfter), [moves])
-  const move = index >= 0 ? moves[index] : null
-  const challengeFen = move ? positions[index] : moves[0].fen
+  const current = steps[index]
+  const move = moves[current.moveIndex]
+  // The row of your move is selected while its move or the master's is on show.
+  const selectedRow = current.kind === 'yours' || current.kind === 'master' ? current.moveIndex : null
   const analysisMove = analysis ? analysis.moves[analysis.shown - 1] : null
-  const fen = analysisMove?.fen ?? challengeFen
-  const lastMove = analysisMove ?? lastMoveFromUci(move?.attemptedUci)
-  const masterMove = !analysis && move && !move.correct ? lastMoveFromUci(move.expectedUci) : null
+  const fen = analysisMove?.fen ?? current.fen
+  const lastMove = analysisMove ?? current.lastMove
+  const masterMove = !analysis && current.kind === 'yours' && !move.correct ? lastMoveFromUci(move.expectedUci) : null
   const clickToMove = useClickToMove(fen, true, (from, to) => { playMove(from, to) }, lastMove)
 
-  // Keeps the selected move visible inside the list without scrolling the page.
+  // Keeps the current move visible inside the list without scrolling the page.
   useEffect(() => {
     const list = listRef.current
-    const row = list?.querySelector<HTMLElement>(`[data-index="${index}"]`)
+    const row = list?.querySelector<HTMLElement>(`[data-index="${current.moveIndex}"]`)
     if (!list || !row) return
     if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop
     else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight
-  }, [index])
+  }, [current.moveIndex])
 
   function goTo(target: number) {
     setAnalysis(null)
@@ -138,7 +185,7 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
       setAnalysis(shown > 0 ? { ...analysis, shown } : null)
       return
     }
-    setIndex((previous) => Math.max(-1, Math.min(moves.length - 1, previous + delta)))
+    setIndex((previous) => Math.max(0, Math.min(steps.length - 1, previous + delta)))
   }
 
   function playMove(from: string, to: string | null) {
@@ -152,10 +199,15 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
     } catch {
       return false
     }
-    // Playing your own next move just steps along the challenge.
-    if (!analysis && index < moves.length - 1 && chess.fen() === positions[index + 1]) {
-      setIndex(index + 1)
-      return true
+    // A move of the challenge just steps along it: the next ply, or the
+    // master's move when the next ply is a deviation of yours.
+    if (!analysis) {
+      const target = [index + 1, index + 2].find((candidate) => steps[candidate] && samePosition(steps[candidate].fen, chess.fen())
+        && (candidate === index + 1 || steps[candidate].kind === 'master'))
+      if (target !== undefined) {
+        setIndex(target)
+        return true
+      }
     }
     const next = { fen: chess.fen(), san: played.san, number, white, from: played.from, to: played.to }
     const line = analysis ? analysis.moves.slice(0, analysis.shown) : []
@@ -170,10 +222,11 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
     event.preventDefault()
   }
 
+  const stepMove = current.san ? `${plyLabel(current.ply)} ${current.san}` : null
   return <div className="challenge-review" tabIndex={-1} onKeyDown={onKeyDown}>
     <div className="move-log review-moves" ref={listRef}>
       <p className="section-label">YOUR MOVES</p>
-      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === index ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(recordIndex)}>
+      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === selectedRow ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(steps.findIndex((candidate) => candidate.kind === 'yours' && candidate.moveIndex === recordIndex))}>
         <span>{moveLabel(record)}</span>
         <strong>{record.attempted}{record.mark && <span className={`move-mark ${markClasses[record.mark]}`}>{record.mark}</span>}</strong>
         <span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span>
@@ -193,17 +246,19 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
         {analysis && <span className="analysis-tag">ANALYSIS · OFF THE CHALLENGE LINE</span>}
       </div>
       <div className="review-controls">
-        <button className="table-action secondary" disabled={index === -1 && !analysis} onClick={() => goTo(-1)} title="Back to the start">⏮ Start</button>
-        <button className="table-action secondary" disabled={index === -1 && !analysis} onClick={() => step(-1)} title="Previous move (←)">◀ Prev</button>
-        <button className="table-action secondary" disabled={analysis ? analysis.shown === analysis.moves.length : index === moves.length - 1} onClick={() => step(1)} title="Next move (→)">Next ▶</button>
+        <button className="table-action secondary" disabled={index === 0 && !analysis} onClick={() => goTo(0)} title="Back to the start">⏮ Start</button>
+        <button className="table-action secondary" disabled={index === 0 && !analysis} onClick={() => step(-1)} title="Previous move (←)">◀ Prev</button>
+        <button className="table-action secondary" disabled={analysis ? analysis.shown === analysis.moves.length : index === steps.length - 1} onClick={() => step(1)} title="Next move (→)">Next ▶</button>
         {analysis && <button className="table-action" onClick={() => setAnalysis(null)} title="Back to the position you started analyzing from">↩ Return to challenge position</button>}
         <span>{analysis
-          ? <>From {move ? `${moveLabel(move)} ${move.attempted}` : 'the start'}: {analysis.moves.map((line, lineIndex) => {
+          ? <>From {stepMove ?? 'the start'}: {analysis.moves.map((line, lineIndex) => {
             const text = line.white ? `${line.number}. ${line.san}` : lineIndex === 0 ? `${line.number}... ${line.san}` : line.san
             return <span key={lineIndex} className={lineIndex === analysis.shown - 1 ? 'analysis-current' : lineIndex >= analysis.shown ? 'analysis-ahead' : ''}>{lineIndex > 0 && ' '}{text}</span>
           })}</>
-          : move
-          ? <>{moveLabel(move)} {move.attempted}{move.mark}{!move.correct && <> · the master played <b>{move.expected}</b></>}</>
+          : current.kind === 'yours'
+          ? <>Your move {stepMove}{move.mark}{!move.correct && <> · the master played <b>{move.expected}</b></>}</>
+          : current.kind === 'master' ? <>The master's move <b>{stepMove}</b></>
+          : stepMove ? <>The game continued {stepMove}</>
           : 'Before your first move'}</span>
       </div>
       <EnginePanel fen={fen} depth={depth} />
