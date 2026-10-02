@@ -240,8 +240,9 @@ const reviewMarks = new Set(['?', '??', '!'])
 
 // The moves of a training session for the analysis page, checked field by field
 // and stored as JSON: the review depth, and per move the position before it,
-// your move and the master's (SAN and UCI), whether they matched, its mark, and
-// the centipawn loss of your move and the master's (for the accuracy plot).
+// your move and the master's (SAN and UCI), whether they matched, its mark, the
+// centipawn loss of your move and the master's (for the accuracy plot), and the
+// scores of the best move and yours for the mover (shown as the saved analysis).
 // Null when missing or malformed, so the session is saved without them.
 function parseTrainingReview(value: unknown) {
   if (!value || typeof value !== 'object') return null
@@ -250,12 +251,13 @@ function parseTrainingReview(value: unknown) {
   const text = (field: unknown, maxLength: number) => typeof field === 'string' && field.length > 0 && field.length <= maxLength
   const uci = (field: unknown) => typeof field === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(field)
   const cpl = (field: unknown) => typeof field === 'number' && Number.isFinite(field) && field >= 0 && field <= 100000 ? field : null
+  const score = (field: unknown) => typeof field === 'number' && Number.isFinite(field) && Math.abs(field) <= 100000 ? field : null
   const clean = []
   for (const move of moves as Array<Record<string, unknown>>) {
     if (!move || typeof move !== 'object' || !Number.isInteger(move.ply) || !text(move.fen, 100) || !text(move.attempted, 10) || !text(move.expected, 10)
       || !uci(move.attemptedUci) || !uci(move.expectedUci) || typeof move.correct !== 'boolean') return null
     const mark = typeof move.mark === 'string' && reviewMarks.has(move.mark) ? move.mark : null
-    clean.push({ ply: move.ply, fen: move.fen, attempted: move.attempted, expected: move.expected, attemptedUci: move.attemptedUci, expectedUci: move.expectedUci, correct: move.correct, mark, cpl: cpl(move.cpl), originalCpl: cpl(move.originalCpl) })
+    clean.push({ ply: move.ply, fen: move.fen, attempted: move.attempted, expected: move.expected, attemptedUci: move.attemptedUci, expectedUci: move.expectedUci, correct: move.correct, mark, cpl: cpl(move.cpl), originalCpl: cpl(move.originalCpl), bestScore: score(move.bestScore), attemptedScore: score(move.attemptedScore) })
   }
   return JSON.stringify({ depth, moves: clean })
 }

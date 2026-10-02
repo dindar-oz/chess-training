@@ -7,7 +7,8 @@ import type { EngineScore, LiveAnalysis } from '../clientStockfish'
 import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
 import { StepCaption } from './StepCaption'
-import { markClasses, markRowClasses, plyLabel, reviewSteps, samePosition, stepMove } from './steps'
+import { accuracyFromCpl } from '../../shared/accuracy.ts'
+import { markClasses, markRowClasses, plyLabel, reviewSteps, samePosition, savedScoreForWhite, stepMove } from './steps'
 import type { ReviewMove, ReviewStep } from './steps'
 
 const engineLineCount = 3
@@ -109,7 +110,24 @@ function MoveInsightPanel({ step, move, analysis }: ReviewPanelContext) {
     <p className="section-label">THIS MOVE</p>
     <strong>{title}</strong>
     <p>{text}</p>
+    {analysis === 0 && step.kind === 'yours' && <SavedAnalysis move={move} />}
   </div>
+}
+
+// What the stored analysis of your move says, so it can be checked against the
+// live engine lines below: the move's own accuracy and loss, and the saved
+// evaluations of the best move and yours, from White's point of view.
+function SavedAnalysis({ move }: { move: ReviewMove }) {
+  const hasScores = move.bestScore !== null && move.bestScore !== undefined && move.attemptedScore !== null && move.attemptedScore !== undefined
+  if ((move.cpl === null || move.cpl === undefined) && !hasScores) return null
+  return <dl className="saved-analysis">
+    {move.cpl !== null && move.cpl !== undefined && <>
+      <dt>This move</dt><dd>{accuracyFromCpl(move.cpl)}% accuracy · lost {(move.cpl / 100).toFixed(2)} pawns</dd>
+    </>}
+    {hasScores && <>
+      <dt>Saved evaluation</dt><dd>best {savedScoreForWhite(move.bestScore!, move.ply)} · your move {savedScoreForWhite(move.attemptedScore!, move.ply)}</dd>
+    </>}
+  </dl>
 }
 
 // The side panels, top to bottom. A new panel is a component taking the

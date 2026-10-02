@@ -523,7 +523,11 @@ h1 em { color: var(--green); font-style: italic; }
 .review-panels { display: grid; gap: 22px; grid-area: panels; }
 .review-panel { border-top: 1px solid var(--line); padding-top: 14px; }
 .move-insight strong { color: var(--ink); display: block; font: 600 17px 'Playfair Display', serif; margin-bottom: 6px; }
-.move-insight p:last-child { color: var(--ink); font-size: 13px; line-height: 1.55; margin: 0; }
+.move-insight > p:not(.section-label) { color: var(--ink); font-size: 13px; line-height: 1.55; margin: 0; }
+/* The stored analysis of the move, to compare with the live engine lines. */
+.saved-analysis { border-top: 1px dashed var(--line); display: grid; font: 11px 'DM Mono', monospace; gap: 3px 12px; grid-template-columns: auto 1fr; margin: 12px 0 0; padding-top: 10px; }
+.saved-analysis dt { color: var(--muted); }
+.saved-analysis dd { color: var(--ink); margin: 0; }
 .engine-panel-head { align-items: baseline; display: flex; justify-content: space-between; }
 .engine-panel-head .section-label { margin-bottom: 10px; }
 .engine-panel-head > span { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: .08em; }

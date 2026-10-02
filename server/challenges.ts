@@ -323,13 +323,16 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null, previousUci: me.next_ply > 0 ? game.moves[me.next_ply - 1].lan : null }
   }
   // A player's own moves include the position and UCI moves so their browser can
-  // analyze them, and their ?/??/! marks and centipawn losses (theirs and the
-  // master's) once analyzed; nobody receives anyone else's moves.
+  // analyze them, and once analyzed their ?/??/! marks, centipawn losses (theirs
+  // and the master's) and the saved scores of the best move and theirs (for the
+  // mover); nobody receives anyone else's moves.
   const myMoves = me
     ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct, cpl, original_cpl AS originalCpl, best_score, attempted_score, second_score, best_uci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number; cpl: number | null; originalCpl: number | null; best_score: number | null; attempted_score: number | null; second_score: number | null; best_uci: string | null }>)
       .map(({ best_score, attempted_score, second_score, best_uci, ...move }) => ({
         ...move,
         correct: move.correct === 1,
+        bestScore: best_score,
+        attemptedScore: attempted_score,
         mark: moveMark({ best: best_score, attempted: attempted_score, second: second_score, playedBest: best_uci !== null && best_uci === move.attemptedUci }),
       }))
     : []

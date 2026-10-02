@@ -4,10 +4,25 @@ import type { LastMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
 
 // One of your moves in a finished training session or challenge: the position
-// before it, your move and the master's, its ?/??/! mark once analyzed, and the
-// centipawn loss of your move and the master's (for the accuracy plot; missing
-// for sessions saved before it, null for moves never analyzed).
-export type ReviewMove = { ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean; mark: MoveMark | null; cpl?: number | null; originalCpl?: number | null }
+// before it, your move and the master's, its ?/??/! mark once analyzed, the
+// centipawn loss of your move and the master's (for the accuracy plot), and the
+// saved scores of the best move and yours, in centipawns for the mover (mates
+// as +-100000). The analysis fields are missing for games saved before they
+// existed and null for moves never analyzed.
+export type ReviewMove = {
+  ply: number
+  fen: string
+  attempted: string
+  expected: string
+  attemptedUci: string
+  expectedUci: string
+  correct: boolean
+  mark: MoveMark | null
+  cpl?: number | null
+  originalCpl?: number | null
+  bestScore?: number | null
+  attemptedScore?: number | null
+}
 
 // Another challenger's centipawn loss at each ply they played, for the accuracy plot.
 export type OtherPlayerProgress = { username: string; moves: Array<{ ply: number; cpl: number | null }> }
@@ -77,6 +92,16 @@ export function reviewSteps(moves: ReviewMove[]) {
     }
   })
   return steps
+}
+
+// A saved score (centipawns for the side that moved at `ply`) from White's
+// point of view, as the engine panel shows scores: "+0.85", "-5.14", or
+// "White mates" for a mate.
+export function savedScoreForWhite(score: number, ply: number) {
+  const value = ply % 2 === 0 ? score : -score
+  if (Math.abs(value) >= 100000) return value > 0 ? 'White mates' : 'Black mates'
+  const pawns = value / 100
+  return `${pawns > 0 ? '+' : ''}${pawns.toFixed(2)}`
 }
 
 // Whether the moves carry the centipawn losses the accuracy plot needs.
