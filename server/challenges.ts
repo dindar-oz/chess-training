@@ -323,10 +323,10 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null, previousUci: me.next_ply > 0 ? game.moves[me.next_ply - 1].lan : null }
   }
   // A player's own moves include the position and UCI moves so their browser can
-  // analyze them, and their ?/??/! marks once analyzed; nobody receives anyone
-  // else's moves.
+  // analyze them, and their ?/??/! marks and centipawn losses (theirs and the
+  // master's) once analyzed; nobody receives anyone else's moves.
   const myMoves = me
-    ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct, best_score, attempted_score, second_score, best_uci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number; best_score: number | null; attempted_score: number | null; second_score: number | null; best_uci: string | null }>)
+    ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct, cpl, original_cpl AS originalCpl, best_score, attempted_score, second_score, best_uci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number; cpl: number | null; originalCpl: number | null; best_score: number | null; attempted_score: number | null; second_score: number | null; best_uci: string | null }>)
       .map(({ best_score, attempted_score, second_score, best_uci, ...move }) => ({
         ...move,
         correct: move.correct === 1,
@@ -866,6 +866,24 @@ function history(userId: string) {
   `).all(userId)
 }
 
+// Every other player's centipawn loss at each ply they played (null where
+// their analysis never arrived).
+function otherPlayersProgress(challenge: ChallengeRow, me: PlayerRow) {
+  const rows = database.prepare(`
+    SELECT challenge_players.id AS playerId, challenge_players.username, challenge_moves.ply, challenge_moves.cpl
+    FROM challenge_moves JOIN challenge_players ON challenge_players.id = challenge_moves.player_id
+    WHERE challenge_moves.challenge_id = ? AND challenge_moves.player_id != ?
+    ORDER BY challenge_players.username COLLATE NOCASE, challenge_moves.ply
+  `).all(challenge.id, me.id) as Array<{ playerId: string; username: string; ply: number; cpl: number | null }>
+  const players = new Map<string, { username: string; moves: Array<{ ply: number; cpl: number | null }> }>()
+  for (const row of rows) {
+    const player = players.get(row.playerId) ?? { username: row.username, moves: [] }
+    player.moves.push({ ply: row.ply, cpl: row.cpl })
+    players.set(row.playerId, player)
+  }
+  return [...players.values()]
+}
+
 // Handles every /api/challenges route; returns false for other URLs.
 export async function handleChallengeRequest(request: IncomingMessage, response: ServerResponse, user: ChallengeUser | null) {
   const url = request.url ?? ''
@@ -925,6 +943,13 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
     }
     if (!playerFor(challenge.id, user.id)) throw new RequestError(404, 'Challenge not found.')
 
+    // The other players' centipawn loss per move, for the accuracy plot of the
+    // analysis page; their moves themselves stay private. Only once it is over.
+    if (request.method === 'GET' && action === 'progress') {
+      if (challenge.status !== 'complete' && challenge.status !== 'void') throw new RequestError(409, 'The challenge is not over yet.')
+      sendJson(response, 200, { players: otherPlayersProgress(challenge, playerFor(challenge.id, user.id)!) })
+      return true
+    }
     if (request.method === 'GET' && !action) {
       sendJson(response, 200, snapshot(challenge, user.id))
       return true

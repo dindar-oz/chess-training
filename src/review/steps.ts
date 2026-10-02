@@ -4,15 +4,20 @@ import type { LastMove } from '../hooks/useClickToMove'
 import type { Side } from '../types'
 
 // One of your moves in a finished training session or challenge: the position
-// before it, your move and the master's, and its ?/??/! mark once analyzed.
-export type ReviewMove = { ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean; mark: MoveMark | null }
+// before it, your move and the master's, its ?/??/! mark once analyzed, and the
+// centipawn loss of your move and the master's (for the accuracy plot; missing
+// for sessions saved before it, null for moves never analyzed).
+export type ReviewMove = { ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: boolean; mark: MoveMark | null; cpl?: number | null; originalCpl?: number | null }
+
+// Another challenger's centipawn loss at each ply they played, for the accuracy plot.
+export type OtherPlayerProgress = { username: string; moves: Array<{ ply: number; cpl: number | null }> }
 
 // What the analysis page opens: a training session (by its stats id) or a challenge.
 export type ReviewSource = { kind: 'training'; sessionId: string } | { kind: 'challenge'; challengeId: string }
 
 // The analysis page's game: a title and detail line, your side, the engine
 // depth, your accuracy once analyzed, and your moves.
-export type ReviewGame = { title: string; details: string; side: Side; depth: number; accuracy: number | null; moves: ReviewMove[] }
+export type ReviewGame = { title: string; details: string; side: Side; depth: number; accuracy: number | null; moves: ReviewMove[]; others: OtherPlayerProgress[] }
 
 // One ply of the review: the position on the board and the move that led
 // there. `kind` says whose move it was: the historical opponent's reply, your
@@ -72,6 +77,11 @@ export function reviewSteps(moves: ReviewMove[]) {
     }
   })
   return steps
+}
+
+// Whether the moves carry the centipawn losses the accuracy plot needs.
+export function hasAccuracyData(moves: ReviewMove[]) {
+  return moves.some((move) => move.cpl !== null && move.cpl !== undefined)
 }
 
 // The step's move, such as "13... Nf6"; null before your first move.

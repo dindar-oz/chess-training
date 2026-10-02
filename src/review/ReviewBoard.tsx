@@ -119,13 +119,18 @@ const reviewPanels: Array<{ id: string; Panel: (context: ReviewPanelContext) => 
   { id: 'engine', Panel: ({ fen, depth }) => <EnginePanel fen={fen} depth={depth} /> },
 ]
 
+// What the space below the board sees: where the board is in your moves (n
+// while your move n or the master's replacing it is on show, n - 0.5 before
+// it, null before your first move), and a way to jump the board to a move.
+export type BelowBoardContext = { position: number | null; goToMove: (moveIndex: number) => void }
+
 // Steps through a played game one ply at a time on a board: the opponent's
 // replies, your own moves, with an arrow for the master's move where you
 // deviated, and then that master's move. The engine gives its view of each
 // position. Moves played on the board branch into an analysis line from the
 // step on show; the game position it left comes back with "Return to game
 // position" (or a row click). The arrow keys step anywhere on the page.
-export function ReviewBoard({ moves, side, depth }: { moves: ReviewMove[]; side: Side; depth: number }) {
+export function ReviewBoard({ moves, side, depth, belowBoard }: { moves: ReviewMove[]; side: Side; depth: number; belowBoard?: (context: BelowBoardContext) => ReactNode }) {
   const steps = useMemo(() => reviewSteps(moves), [moves])
   const [index, setIndex] = useState(0)
   // The analysis line from the step on show and how many of its moves are on
@@ -168,6 +173,12 @@ export function ReviewBoard({ moves, side, depth }: { moves: ReviewMove[]; side:
     setIndex(target)
   }
 
+  function goToMove(moveIndex: number) {
+    goTo(steps.findIndex((candidate) => candidate.kind === 'yours' && candidate.moveIndex === moveIndex))
+  }
+
+  const position = current.kind === 'start' ? null : current.kind === 'reply' ? current.moveIndex - 0.5 : current.moveIndex
+
   // In analysis, steps along the analysis line; stepping back past its first
   // move returns to the game position.
   function step(delta: number) {
@@ -209,7 +220,7 @@ export function ReviewBoard({ moves, side, depth }: { moves: ReviewMove[]; side:
   return <div className="review-layout">
     <div className="move-log review-moves" ref={listRef}>
       <p className="section-label">YOUR MOVES</p>
-      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === selectedRow ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(steps.findIndex((candidate) => candidate.kind === 'yours' && candidate.moveIndex === recordIndex))}>
+      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === selectedRow ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goToMove(recordIndex)}>
         <span>{plyLabel(record.ply)}</span>
         <strong>{record.attempted}{record.mark && <span className={`move-mark ${markClasses[record.mark]}`}>{record.mark}</span>}</strong>
         <span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span>
@@ -240,6 +251,7 @@ export function ReviewBoard({ moves, side, depth }: { moves: ReviewMove[]; side:
           })}</>
           : <StepCaption step={current} move={move} />}</span>
       </div>
+      {belowBoard?.({ position, goToMove })}
     </div>
     <aside className="review-panels">
       {reviewPanels.map(({ id, Panel }) => <Panel key={id} fen={fen} depth={depth} step={current} move={move} analysis={analysis?.shown ?? 0} />)}
