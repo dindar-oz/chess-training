@@ -12,6 +12,8 @@ import type { ChallengeSnapshot } from './types'
 type ReviewMove = NonNullable<ChallengeSnapshot['me']>['moves'][number]
 
 const markClasses: Record<MoveMark, string> = { '?': 'mark-mistake', '??': 'mark-blunder', '!': 'mark-only' }
+// Tints for the move-list rows of marked moves.
+const markRowClasses: Record<MoveMark, string> = { '?': 'row-mistake', '??': 'row-blunder', '!': 'row-only' }
 const engineLineCount = 3
 const shownPlies = 8
 // Finished searches by depth and position, so stepping back shows them at once.
@@ -82,7 +84,6 @@ function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
     {gameOver ? <p className="empty-log">{chess.isCheckmate() ? 'Checkmate.' : 'The game is drawn.'}</p>
       : !analysis || analysis.lines.length === 0 ? <p className="empty-log">Analyzing this position in your browser...</p>
       : <>
-        <strong className="engine-eval">{formatScore(analysis.lines[0].score, whiteToMove)}</strong>
         <div className="engine-lines">{analysis.lines.map((line, index) => <div className="engine-line" key={index}>
           <b>{formatScore(line.score, whiteToMove)}</b>
           <span>{lineToSan(fen, line.pv)}</span>
@@ -172,7 +173,7 @@ export function ChallengeReview({ moves, side, depth }: { moves: ReviewMove[]; s
   return <div className="challenge-review" tabIndex={-1} onKeyDown={onKeyDown}>
     <div className="move-log review-moves" ref={listRef}>
       <p className="section-label">YOUR MOVES</p>
-      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${recordIndex === index ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(recordIndex)}>
+      {moves.map((record, recordIndex) => <button key={record.ply} data-index={recordIndex} className={`move-row ${record.mark ? `marked ${markRowClasses[record.mark]}` : ''} ${recordIndex === index ? (analysis ? 'selected branched' : 'selected') : ''}`} onClick={() => goTo(recordIndex)}>
         <span>{moveLabel(record)}</span>
         <strong>{record.attempted}{record.mark && <span className={`move-mark ${markClasses[record.mark]}`}>{record.mark}</span>}</strong>
         <span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span>
