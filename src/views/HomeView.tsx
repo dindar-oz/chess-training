@@ -5,6 +5,7 @@ import { useBadges } from '../badges/context'
 import { useChallenges } from '../challenges/context'
 import { PageHeader } from '../components/PageHeader'
 import { useRealtime, useRealtimeEvent } from '../realtime/context'
+import { PlayerName } from '../titles/PlayerName'
 import adminImage from '../assets/dashboard/admin.svg'
 import awardsImage from '../assets/dashboard/awards.svg'
 import challengesImage from '../assets/dashboard/challenges.svg'
@@ -91,7 +92,7 @@ export function HomeView({ user, games, sessionStats, onNavigate, onTrain, onLog
   return <main className="app-shell home-screen">
     <PageHeader
       eyebrow="REPLAY LAB / HOME"
-      title={<>{sessionStats.length > 0 ? 'Welcome back, ' : 'Welcome, '}<em>{user.username}.</em></>}
+      title={<>{sessionStats.length > 0 ? 'Welcome back, ' : 'Welcome, '}<em><PlayerName userId={user.id} name={user.username} />.</em></>}
       subtitle={<div className="level-progress">
         <strong>LEVEL {level.level}</strong>
         <span className="level-bar" role="progressbar" aria-label={`Progress to level ${level.level + 1}`} aria-valuemin={0} aria-valuemax={level.xpForNext} aria-valuenow={level.xpIntoLevel}><span style={{ width: `${(100 * level.xpIntoLevel) / level.xpForNext}%` }} /></span>

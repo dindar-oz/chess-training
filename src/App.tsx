@@ -16,6 +16,7 @@ import { ReviewView } from './views/ReviewView'
 import { AdminNotices } from './components/AdminNotices'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { BadgeProvider } from './badges/BadgeProvider'
+import { TitlesProvider } from './titles/TitlesProvider'
 import { UpdateBanner } from './components/UpdateBanner'
 import { readStored, writeStored } from './storage'
 import { readApiResponse } from './types'
@@ -219,18 +220,20 @@ function App() {
   // The training view stays mounted while hidden so a running clock or engine
   // review continues (and its result is saved) while the user browses other tabs.
   return <RealtimeProvider key={authUser.id} onSessionEnded={endSession}>
-    <ChallengeProvider userId={authUser.id} onChallengeStarted={() => navigate('challenges')} onChallengeCompleted={refreshAccount}>
-      <BadgeProvider onOpenAwards={() => navigate('awards')} onXpChanged={refreshAccount}>
-        <div hidden={review !== null}>{page}</div>
-        {trainingKey > 0 && <div hidden={view !== 'training' || review !== null}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={navigate} onStatSaved={handleStatSaved} onAnalyze={openReview} /></div>}
-        {review && <ErrorBoundary actionLabel={`← ${reviewBackLabels[review.from] ?? 'Back'}`} onAction={closeReview}>
-          <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />
-        </ErrorBoundary>}
-        <UpdateBanner view={view} trainingOpened={trainingKey > 0} reviewing={review !== null} />
-        <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} />
-        {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => navigate('admin')} />}
-      </BadgeProvider>
-    </ChallengeProvider>
+    <TitlesProvider onAccountChanged={refreshAccount}>
+      <ChallengeProvider userId={authUser.id} onChallengeStarted={() => navigate('challenges')} onChallengeCompleted={refreshAccount}>
+        <BadgeProvider onOpenAwards={() => navigate('awards')} onXpChanged={refreshAccount}>
+          <div hidden={review !== null}>{page}</div>
+          {trainingKey > 0 && <div hidden={view !== 'training' || review !== null}><TrainingView key={trainingKey} user={authUser} selectedGame={selectedGame} onNavigate={navigate} onStatSaved={handleStatSaved} onAnalyze={openReview} /></div>}
+          {review && <ErrorBoundary actionLabel={`← ${reviewBackLabels[review.from] ?? 'Back'}`} onAction={closeReview}>
+            <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />
+          </ErrorBoundary>}
+          <UpdateBanner view={view} trainingOpened={trainingKey > 0} reviewing={review !== null} />
+          <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} />
+          {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => navigate('admin')} />}
+        </BadgeProvider>
+      </ChallengeProvider>
+    </TitlesProvider>
   </RealtimeProvider>
 }
 

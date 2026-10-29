@@ -36,6 +36,7 @@ export type SessionStat = {
 }
 
 export type LeaderboardEntry = {
+  id: string
   username: string
   xp: number
   elo: number
@@ -58,6 +59,7 @@ export type AdminUser = {
   id: string
   username: string
   role: Role
+  title: string | null
   xp: number
   elo: number
   createdAt: string

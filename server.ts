@@ -6,8 +6,9 @@ import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
+import { isChessTitle, maxAdminElo, minAdminElo } from './shared/titles.ts'
 import { awardBadge, handleBadgeRequest, initBadges } from './server/badges.ts'
-import { disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat } from './server/realtime.ts'
+import { broadcast, disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat, updateOnlineUser } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
 import { importJob, pgnElo, startImport } from './server/pgnImport.ts'
@@ -181,6 +182,12 @@ try {
 } catch {
   // Existing databases may already have the elo column.
 }
+try {
+  // A FIDE title (see shared/titles.ts) given by an admin; null for most members.
+  database.exec('ALTER TABLE users ADD COLUMN title TEXT')
+} catch {
+  // Existing databases may already have the title column.
+}
 // Promotion happens only at startup, never at registration, so the account must be
 // registered before its name is added here; otherwise anyone could claim the name.
 const adminUsernames = new Set((process.env.ADMIN_USERNAMES ?? '').split(',').map((name) => name.trim().toLowerCase()).filter(Boolean))
@@ -234,6 +241,11 @@ function currentUser(request: import('node:http').IncomingMessage): User | null 
 }
 
 // Sends the 401/403 itself, so callers only need to return when this yields null.
+function titlesByUser() {
+  const rows = database.prepare('SELECT id, title FROM users WHERE title IS NOT NULL').all() as Array<{ id: string; title: string }>
+  return Object.fromEntries(rows.map((row) => [row.id, row.title]))
+}
+
 function requireAdmin(request: import('node:http').IncomingMessage, response: import('node:http').ServerResponse) {
   const user = currentUser(request)
   if (!user) {
@@ -564,6 +576,16 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  // Titled members by user id; the site shows each title before the member's name.
+  if (request.method === 'GET' && request.url === '/api/titles') {
+    if (!currentUser(request)) {
+      sendJson(response, 401, { error: 'Authentication required.' })
+      return
+    }
+    sendJson(response, 200, titlesByUser())
+    return
+  }
+
   if (request.method === 'GET' && request.url === '/api/leaderboard') {
     const user = currentUser(request)
     if (!user) {
@@ -571,7 +593,7 @@ const server = createServer(async (request, response) => {
       return
     }
     const rows = database.prepare(`
-      SELECT users.username AS username, users.xp AS xp, users.elo AS elo,
+      SELECT users.id AS id, users.username AS username, users.xp AS xp, users.elo AS elo,
         (SELECT COUNT(*) FROM rating_events WHERE rating_events.user_id = users.id) AS ratedGames,
         AVG(training_sessions.learner_accuracy) AS averageAccuracy
       FROM users
@@ -638,7 +660,7 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/api/admin/users') {
     if (!requireAdmin(request, response)) return
     const rows = database.prepare(`
-      SELECT users.id, users.username, users.role, users.xp, users.elo, users.created_at AS createdAt, users.disabled_at AS disabledAt,
+      SELECT users.id, users.username, users.role, users.title, users.xp, users.elo, users.created_at AS createdAt, users.disabled_at AS disabledAt,
         COUNT(training_sessions.id) AS sessions, MAX(training_sessions.completed_at) AS lastTrainedAt
       FROM users
       LEFT JOIN training_sessions ON training_sessions.user_id = users.id
@@ -666,6 +688,34 @@ const server = createServer(async (request, response) => {
     if (!requireAdmin(request, response)) return
     database.prepare('UPDATE password_reset_requests SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL').run(new Date().toISOString(), resetDismissMatch[1])
     sendJson(response, 200, { ok: true })
+    return
+  }
+
+  // Titles and ELO aren't about access, so admins may set them on any account, their own included.
+  const adminProfileMatch = request.url?.match(/^\/api\/admin\/users\/([^/]+)\/(title|elo)$/)
+  if (adminProfileMatch && request.method === 'POST') {
+    if (!requireAdmin(request, response)) return
+    try {
+      const [, targetId, field] = adminProfileMatch
+      const target = database.prepare('SELECT id FROM users WHERE id = ?').get(targetId) as { id: string } | undefined
+      if (!target) throw new RequestError(404, 'User not found.')
+      const body = await readJson(request)
+      if (field === 'title') {
+        if (body.title !== null && !isChessTitle(body.title)) throw new RequestError(400, 'Unknown title.')
+        database.prepare('UPDATE users SET title = ? WHERE id = ?').run(body.title, target.id)
+        broadcast('titles', titlesByUser())
+      } else {
+        const elo = body.elo
+        if (typeof elo !== 'number' || !Number.isInteger(elo) || elo < minAdminElo || elo > maxAdminElo) throw new RequestError(400, `ELO must be a whole number from ${minAdminElo} to ${maxAdminElo}.`)
+        // Not a rating event: the member's rating history stays the challenges they played.
+        database.prepare('UPDATE users SET elo = ? WHERE id = ?').run(elo, target.id)
+        updateOnlineUser(target.id, { elo })
+        sendToUser(target.id, 'account_updated', null)
+      }
+      sendJson(response, 200, { ok: true })
+    } catch (error) {
+      sendJson(response, error instanceof RequestError ? error.status : 400, { error: error instanceof Error ? error.message : 'User update failed.' })
+    }
     return
   }
 

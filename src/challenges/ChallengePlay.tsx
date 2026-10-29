@@ -5,6 +5,7 @@ import { correctionDelayMs } from '../../shared/challengeRules.ts'
 import { ChessClock } from '../components/ChessClock'
 import { moveSound, play } from '../sounds'
 import { formatClock } from '../timeControl'
+import { PlayerName } from '../titles/PlayerName'
 import { ChallengeChat } from './ChallengeChat'
 import { lastMoveFromUci, useClickToMove } from '../hooks/useClickToMove'
 import type { LastMove } from '../hooks/useClickToMove'
@@ -174,7 +175,7 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
       <div className="opponent-list">{opponents.map((player) => {
         const remaining = liveRemainingMs(player.clock, receivedAt, now)
         return <div className="opponent-row" key={player.playerId}>
-          <div><strong>{player.username}</strong><span>{player.playStatus ? playStatusLabels[player.playStatus] : '—'}</span></div>
+          <div><strong><PlayerName userId={player.userId} name={player.username} /></strong><span>{player.playStatus ? playStatusLabels[player.playStatus] : '—'}</span></div>
           <div className="opponent-progress"><span style={{ width: `${totalMoves ? (player.movesPlayed / totalMoves) * 100 : 0}%` }} /></div>
           <b className={player.clock.running && started ? 'running' : ''}>{remaining === null ? '--:--' : formatClock(remaining)}</b>
         </div>

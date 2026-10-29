@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { formatTimeControl } from '../timeControl'
+import { PlayerName } from '../titles/PlayerName'
 import { useChallenges } from './context'
 import { confirmLeavingWaitingRoom, sideLabel } from './types'
 
@@ -29,7 +30,7 @@ export function InvitationToasts({ userId, onAccepted }: { userId: string; onAcc
       const invitedCount = invitation.players.filter((player) => player.inviteStatus !== 'declined' && player.inviteStatus !== 'left').length
       return <div className="toast" key={invitation.id}>
         <p className="section-label">⚔ CHALLENGE INVITATION</p>
-        <strong>{invitation.creatorName} challenges you</strong>
+        <strong><PlayerName userId={invitation.creatorId} name={invitation.creatorName} /> challenges you</strong>
         <span>{formatTimeControl(invitation.timeControl)} · {sideLabel(invitation.sideChoice)} · depth {invitation.depth} · {invitedCount} players</span>
         {errors[invitation.id] && <p className="auth-message">{errors[invitation.id]}</p>}
         <div className="toast-actions">

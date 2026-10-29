@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
+import { chessTitles, maxAdminElo, minAdminElo } from '../../shared/titles.ts'
 import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
 import { PgnImportPanel } from '../components/PgnImportPanel'
 import { useRealtimeEvent } from '../realtime/context'
+import { PlayerName } from '../titles/PlayerName'
 import { readApiResponse } from '../types'
 import type { AdminUser, AppView, AuthUser } from '../types'
 
@@ -26,6 +28,7 @@ export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLog
   const [resetRequests, setResetRequests] = useState<ResetRequest[]>([])
   const [resetLink, setResetLink] = useState<ResetLink | null>(null)
   const [copied, setCopied] = useState(false)
+  const [eloDraft, setEloDraft] = useState<{ userId: string; value: string } | null>(null)
 
   const loadUsers = useCallback(async () => {
     try {
@@ -105,6 +108,36 @@ export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLog
     }
   }
 
+  async function saveProfile(target: AdminUser, field: 'title' | 'elo', value: string | number | null) {
+    setBusyUserId(target.id)
+    setError('')
+    try {
+      const response = await fetch(`/api/admin/users/${target.id}/${field}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) })
+      const result = await readApiResponse<{ ok?: boolean }>(response)
+      if (!response.ok) throw new Error(result.error ?? 'The change failed.')
+      if (field === 'elo') setEloDraft(null)
+      await loadUsers()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'The change failed.')
+    } finally {
+      setBusyUserId(null)
+    }
+  }
+
+  function saveElo(target: AdminUser) {
+    const elo = Number(eloDraft?.value)
+    if (!Number.isInteger(elo) || elo < minAdminElo || elo > maxAdminElo) {
+      setError(`ELO must be a whole number from ${minAdminElo} to ${maxAdminElo}.`)
+      return
+    }
+    if (elo === target.elo) {
+      setEloDraft(null)
+      return
+    }
+    if (!window.confirm(`Set ${target.username}'s ELO from ${target.elo} to ${elo}? Their next challenges are rated from the new value.`)) return
+    void saveProfile(target, 'elo', elo)
+  }
+
   const activeCount = users.filter((entry) => !entry.disabledAt).length
   const adminCount = users.filter((entry) => entry.role === 'admin').length
 
@@ -126,14 +159,24 @@ export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLog
     <section className="history-section">
       <div className="section-heading"><div><p className="section-label">USER MANAGEMENT</p><h2>Members of the club.</h2></div></div>
       {error && <p className="admin-error">{error}</p>}
-      {loading ? <div className="empty-library">Loading users...</div> : <div className="games-table-wrap"><table className="games-table admin-table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>ELO</th><th>XP</th><th>Sessions</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{users.map((entry) => {
+      {loading ? <div className="empty-library">Loading users...</div> : <div className="games-table-wrap"><table className="games-table admin-table"><thead><tr><th>User</th><th>Title</th><th>Role</th><th>Status</th><th>ELO</th><th>XP</th><th>Sessions</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{users.map((entry) => {
         const isSelf = entry.id === user.id
         const busy = busyUserId === entry.id
         return <tr key={entry.id} className={entry.disabledAt ? 'admin-row-disabled' : ''}>
-          <td><strong>{entry.username}</strong><span>{entry.lastTrainedAt ? `Last trained ${new Date(entry.lastTrainedAt).toLocaleDateString()}` : 'No sessions yet'}</span></td>
+          <td><strong><PlayerName userId={entry.id} name={entry.username} /></strong><span>{entry.lastTrainedAt ? `Last trained ${new Date(entry.lastTrainedAt).toLocaleDateString()}` : 'No sessions yet'}</span></td>
+          <td><select className="title-select" aria-label={`Title of ${entry.username}`} value={entry.title ?? ''} disabled={busy} onChange={(event) => void saveProfile(entry, 'title', event.target.value || null)}>
+            <option value="">—</option>
+            {Object.entries(chessTitles).map(([title, name]) => <option key={title} value={title} title={name}>{title}</option>)}
+          </select></td>
           <td><b className={`role-badge ${entry.role}`}>{entry.role}</b></td>
           <td>{entry.disabledAt ? <span className="status-disabled">Disabled {new Date(entry.disabledAt).toLocaleDateString()}</span> : 'Active'}</td>
-          <td>{entry.elo}</td>
+          <td>{eloDraft?.userId === entry.id
+            ? <form className="elo-edit" onSubmit={(event) => { event.preventDefault(); saveElo(entry) }}>
+              <input type="number" min={minAdminElo} max={maxAdminElo} value={eloDraft.value} aria-label={`New ELO for ${entry.username}`} autoFocus onChange={(event) => setEloDraft({ userId: entry.id, value: event.target.value })} onKeyDown={(event) => { if (event.key === 'Escape') setEloDraft(null) }} />
+              <button className="table-action" disabled={busy}>Save</button>
+              <button type="button" className="text-button" onClick={() => setEloDraft(null)}>Cancel</button>
+            </form>
+            : <span className="elo-value">{entry.elo}<button className="text-button" disabled={busy} onClick={() => setEloDraft({ userId: entry.id, value: String(entry.elo) })}>Edit</button></span>}</td>
           <td>{entry.xp}</td>
           <td>{entry.sessions}</td>
           <td>{new Date(entry.createdAt).toLocaleDateString()}</td>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { maxChatLength } from '../../shared/challengeRules.ts'
+import { PlayerName } from '../titles/PlayerName'
 import { useChallenges } from './context'
 
 // A simple message box seen by every player in the current challenge. Messages
@@ -59,7 +60,7 @@ export function ChallengeChat({ userId }: { userId: string }) {
       {chatMutedForMe ? <p className="empty-log">You muted the chat. New messages are hidden.</p>
         : chat.length === 0 ? <p className="empty-log">No messages yet. Messages aren't saved and disappear when you reload.</p>
         : chat.map((message) => <div key={message.id} className={`chat-message ${message.userId === userId ? 'own' : ''}`}>
-          <span className="chat-author">{message.userId === userId ? 'You' : message.username}</span>
+          <span className="chat-author">{message.userId === userId ? 'You' : <PlayerName userId={message.userId} name={message.username} />}</span>
           <span className="chat-time">{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           <p>{message.text}</p>
         </div>)}

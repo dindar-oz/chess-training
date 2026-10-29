@@ -10,6 +10,7 @@ import type { TimeControl } from '../timeControl'
 import type { AuthUser, Side } from '../types'
 import { useChallenges } from './context'
 import { GameFilterFields } from './GameFilterFields'
+import { PlayerName } from '../titles/PlayerName'
 import { storeGameFilter, storedGameFilter, useMatchingGameCount } from './gameSelection'
 
 export type NewChallengeKind = 'invite' | 'open'
@@ -95,7 +96,7 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
         ? <label className="depth-control">MAX PLAYERS (YOU INCLUDED) <strong>{maxPlayers}</strong><input type="range" min={minOpenPlayers} max={maxOpenPlayers} value={maxPlayers} onChange={(event) => setMaxPlayers(Number(event.target.value))} /></label>
         : <>
           <p className="section-label">INVITE ONLINE PLAYERS <span className="invite-count">{invitees.length}/{maxInvitees}</span></p>
-          {!connected ? <p className="empty-log">Reconnecting to the live server...</p> : others.length === 0 ? <p className="empty-log">No other members are online right now.</p> : <div className="invite-list">{others.map((onlineUser) => <label key={onlineUser.id} className={`invite-option ${invitees.includes(onlineUser.id) ? 'selected' : ''}`}><input type="checkbox" checked={invitees.includes(onlineUser.id)} onChange={() => toggle(onlineUser.id)} /><span className="online-dot" /><strong>{onlineUser.username}</strong><span>{onlineUser.elo} ELO</span></label>)}</div>}
+          {!connected ? <p className="empty-log">Reconnecting to the live server...</p> : others.length === 0 ? <p className="empty-log">No other members are online right now.</p> : <div className="invite-list">{others.map((onlineUser) => <label key={onlineUser.id} className={`invite-option ${invitees.includes(onlineUser.id) ? 'selected' : ''}`}><input type="checkbox" checked={invitees.includes(onlineUser.id)} onChange={() => toggle(onlineUser.id)} /><span className="online-dot" /><strong><PlayerName userId={onlineUser.id} name={onlineUser.username} /></strong><span>{onlineUser.elo} ELO</span></label>)}</div>}
         </>}
       {error && <p className="admin-error">{error}</p>}
       {isOpen
