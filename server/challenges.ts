@@ -5,6 +5,8 @@ import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
 import { accuracyFromCpl } from '../shared/accuracy.ts'
 import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { anyGame, parseGameFilter, plyRange } from '../shared/gameFilter.ts'
+import type { GameFilter } from '../shared/gameFilter.ts'
 import { analysisBadgesFor, currentStreak, moveMark, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
 import { awardBadge } from './badges.ts'
@@ -58,6 +60,8 @@ type ChallengeRow = {
   chat_muted: number
   // Seats (host included) of an open challenge; null for an invitation challenge.
   max_players: number | null
+  // The host's GameFilter as JSON; null for challenges from before filters.
+  game_filter: string | null
 }
 
 type PlayerRow = {
@@ -199,6 +203,7 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
     'ALTER TABLE challenge_moves ADD COLUMN second_score REAL',
     'ALTER TABLE challenge_moves ADD COLUMN best_uci TEXT',
     'ALTER TABLE challenges ADD COLUMN max_players INTEGER',
+    'ALTER TABLE challenges ADD COLUMN game_filter TEXT',
   ]) {
     try {
       database.exec(migration)
@@ -221,6 +226,10 @@ function getPlayers(challengeId: string) {
 
 function getPlayer(playerId: string) {
   return database.prepare('SELECT challenge_players.*, users.elo AS current_elo FROM challenge_players LEFT JOIN users ON users.id = challenge_players.user_id WHERE challenge_players.id = ?').get(playerId) as PlayerRow | undefined
+}
+
+function gameFilterOf(challenge: { game_filter: string | null }): GameFilter {
+  return challenge.game_filter ? JSON.parse(challenge.game_filter) as GameFilter : anyGame
 }
 
 function playerFor(challengeId: string, userId: string) {
@@ -350,6 +359,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     createdAt: challenge.created_at,
     chatMuted: challenge.chat_muted === 1,
     maxPlayers: challenge.max_players,
+    gameFilter: gameFilterOf(challenge),
     startsInMs: challenge.starts_at === null ? null : challenge.starts_at - now,
     totalMoves,
     game: revealed && challenge.game_id
@@ -402,13 +412,13 @@ function openChallenges() {
   return (database.prepare(`
     SELECT challenges.id, challenges.creator_id AS creatorId, challenges.creator_name AS creatorName, users.elo AS creatorElo,
       challenges.side_choice AS sideChoice, challenges.base_seconds AS baseSeconds, challenges.increment_seconds AS incrementSeconds,
-      challenges.depth, challenges.max_players AS maxPlayers, challenges.created_at AS createdAt,
+      challenges.depth, challenges.max_players AS maxPlayers, challenges.game_filter, challenges.created_at AS createdAt,
       (SELECT COUNT(*) FROM challenge_players WHERE challenge_players.challenge_id = challenges.id AND challenge_players.invite_status IN ('creator', 'accepted')) AS players
     FROM challenges LEFT JOIN users ON users.id = challenges.creator_id
     WHERE challenges.status = 'lobby' AND challenges.max_players IS NOT NULL
     ORDER BY challenges.created_at
-  `).all() as Array<{ id: string; creatorId: string | null; creatorName: string; creatorElo: number | null; sideChoice: Side | 'random'; baseSeconds: number; incrementSeconds: number; depth: number; maxPlayers: number; createdAt: string; players: number }>)
-    .map(({ baseSeconds, incrementSeconds, ...rest }) => ({ ...rest, timeControl: { baseSeconds, incrementSeconds } }))
+  `).all() as Array<{ id: string; creatorId: string | null; creatorName: string; creatorElo: number | null; sideChoice: Side | 'random'; baseSeconds: number; incrementSeconds: number; depth: number; maxPlayers: number; game_filter: string | null; createdAt: string; players: number }>)
+    .map(({ baseSeconds, incrementSeconds, game_filter, ...rest }) => ({ ...rest, timeControl: { baseSeconds, incrementSeconds }, gameFilter: gameFilterOf({ game_filter }) }))
 }
 
 // ---------- clocks ----------
@@ -503,9 +513,10 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
   if (!open && inviteeIds.length === 0) throw new RequestError(400, 'Invite at least one player.')
   if (inviteeIds.length > maxInvitees) throw new RequestError(400, `You can invite at most ${maxInvitees} players.`)
   if (inviteeIds.includes(user.id)) throw new RequestError(400, 'You are already in your own challenge.')
+  const gameFilter = readGameFilter(body.gameFilter)
   if (isBusy(user.id)) throw new RequestError(409, 'Finish or leave your current challenge first.')
-  const { count } = database.prepare('SELECT COUNT(*) AS count FROM games WHERE ply_count >= 2').get() as { count: number }
-  if (count === 0) throw new RequestError(409, 'The game library is empty. An admin needs to import games first.')
+  if (countGames(anyGame) === 0) throw new RequestError(409, 'The game library is empty. An admin needs to import games first.')
+  if (countGames(gameFilter) === 0) throw new RequestError(409, 'No library games match your game selection.')
 
   const invitees = inviteeIds.map((id) => database.prepare('SELECT id, username FROM users WHERE id = ? AND disabled_at IS NULL').get(id) as { id: string; username: string } | undefined)
   if (invitees.some((invitee) => !invitee)) throw new RequestError(400, 'One of the invited players no longer exists.')
@@ -514,8 +525,8 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
 
   const challengeId = randomUUID()
   withTransaction(() => {
-    database.prepare("INSERT INTO challenges (id, creator_id, creator_name, side_choice, base_seconds, increment_seconds, depth, status, created_at, max_players) VALUES (?, ?, ?, ?, ?, ?, ?, 'lobby', ?, ?)")
-      .run(challengeId, user.id, user.username, sideChoice, baseSeconds, incrementSeconds, depth, new Date().toISOString(), maxPlayers as number | null)
+    database.prepare("INSERT INTO challenges (id, creator_id, creator_name, side_choice, base_seconds, increment_seconds, depth, status, created_at, max_players, game_filter) VALUES (?, ?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?)")
+      .run(challengeId, user.id, user.username, sideChoice, baseSeconds, incrementSeconds, depth, new Date().toISOString(), maxPlayers as number | null, JSON.stringify(gameFilter))
     const insertPlayer = database.prepare('INSERT INTO challenge_players (id, challenge_id, user_id, username, invite_status) VALUES (?, ?, ?, ?, ?)')
     insertPlayer.run(randomUUID(), challengeId, user.id, user.username, 'creator')
     for (const invitee of invitees) insertPlayer.run(randomUUID(), challengeId, invitee!.id, invitee!.username, 'invited')
@@ -556,10 +567,43 @@ function kick(challenge: ChallengeRow, user: ChallengeUser, body: Record<string,
   publish(challenge.id)
 }
 
-function pickGame() {
+function readGameFilter(value: unknown) {
+  try {
+    return parseGameFilter(value)
+  } catch (error) {
+    throw new RequestError(400, (error as Error).message)
+  }
+}
+
+// SQL for the library games a filter allows, with at least minPlies plies.
+function gameConditions(filter: GameFilter, minPlies: number) {
+  const range = plyRange(filter)
+  const clauses = ['ply_count >= ?']
+  const params = [Math.max(minPlies, range.minPlies)]
+  if (range.maxPlies !== null) {
+    clauses.push('ply_count <= ?')
+    params.push(range.maxPlies)
+  }
+  if (filter.decisiveOnly) clauses.push("result IN ('1-0', '0-1')")
+  if (filter.minElo !== null) {
+    clauses.push('white_elo >= ? AND black_elo >= ?')
+    params.push(filter.minElo, filter.minElo)
+  }
+  return { where: clauses.join(' AND '), params }
+}
+
+function countGames(filter: GameFilter) {
+  const { where, params } = gameConditions(filter, 2)
+  return (database.prepare(`SELECT COUNT(*) AS count FROM games WHERE ${where}`).get(...params) as { count: number }).count
+}
+
+function pickGame(filter: GameFilter) {
   const columns = 'id, title, white, black, event, date, result, pgn, ply_count'
-  return (database.prepare(`SELECT ${columns} FROM games WHERE ply_count >= ? ORDER BY RANDOM() LIMIT 1`).get(preferredMinPlies)
-    ?? database.prepare(`SELECT ${columns} FROM games WHERE ply_count >= 2 ORDER BY RANDOM() LIMIT 1`).get()) as
+  const pick = (minPlies: number) => {
+    const { where, params } = gameConditions(filter, minPlies)
+    return database.prepare(`SELECT ${columns} FROM games WHERE ${where} ORDER BY RANDOM() LIMIT 1`).get(...params)
+  }
+  return (pick(preferredMinPlies) ?? pick(2)) as
     { id: string; title: string; white: string; black: string; event: string; date: string; result: string; pgn: string; ply_count: number } | undefined
 }
 
@@ -568,8 +612,8 @@ function startChallenge(challenge: ChallengeRow, user: ChallengeUser) {
   if (challenge.status !== 'lobby') throw new RequestError(409, 'The challenge has already started.')
   const players = getPlayers(challenge.id)
   if (!players.some((player) => player.invite_status === 'accepted')) throw new RequestError(409, challenge.max_players === null ? 'Wait until at least one invited player accepts.' : 'Wait until at least one player joins.')
-  const game = pickGame()
-  if (!game) throw new RequestError(409, 'The game library is empty. An admin needs to import games first.')
+  const game = pickGame(gameFilterOf(challenge))
+  if (!game) throw new RequestError(409, 'No library games match the game selection any more.')
   const side: Side = challenge.side_choice === 'random' ? (Math.random() < 0.5 ? 'w' : 'b') : challenge.side_choice
   const chess = new Chess()
   chess.loadPgn(game.pgn)
@@ -905,6 +949,17 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
     }
     if (request.method === 'GET' && url === '/api/challenges/history') {
       sendJson(response, 200, history(user.id))
+      return true
+    }
+    // How many library games a game selection allows, for the new-challenge dialog.
+    if (request.method === 'GET' && url.startsWith('/api/challenges/games?')) {
+      let filter: unknown
+      try {
+        filter = JSON.parse(new URLSearchParams(url.slice(url.indexOf('?'))).get('filter') ?? 'null')
+      } catch {
+        throw new RequestError(400, 'Invalid game filter.')
+      }
+      sendJson(response, 200, { count: countGames(readGameFilter(filter)) })
       return true
     }
     if (request.method === 'GET' && url === '/api/challenges/open') {

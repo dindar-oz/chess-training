@@ -390,6 +390,7 @@ h1 em { color: var(--green); font-style: italic; }
 .open-challenge-host { display: grid; gap: 2px; min-width: 0; }
 .open-challenge-host strong { color: var(--ink); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-challenge-host span { color: var(--muted); font: 11px 'DM Mono', monospace; }
+.open-challenge-host small { color: var(--green); font: 10px 'DM Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-challenge > .open-challenge-seats { color: var(--green); font-weight: 500; }
 .open-challenge.full > .open-challenge-seats { color: var(--red); }
 .open-challenge .table-action { justify-content: center; }
@@ -416,6 +417,21 @@ h1 em { color: var(--green); font-style: italic; }
 .invite-option .online-dot { margin: 0; }
 .invite-option strong { color: var(--ink); font-size: 14px; }
 .invite-option span:last-child { color: var(--muted); font: 11px 'DM Mono', monospace; }
+.game-filter { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); margin: 4px 0 18px; padding: 12px 0; }
+.game-filter summary { align-items: baseline; cursor: pointer; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.game-filter summary .section-label { margin: 0; }
+.game-filter summary strong { color: var(--ink); font-size: 13px; font-weight: 500; }
+.game-filter[open] summary { margin-bottom: 14px; }
+.game-filter-fields { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.game-filter-fields label { color: var(--muted); display: grid; font: 10px 'DM Mono', monospace; gap: 6px; letter-spacing: .08em; }
+.game-filter-fields input { background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: 14px 'DM Mono', monospace; min-width: 0; padding: 8px 10px; }
+.game-filter-fields input:focus { border-color: var(--green); outline: 2px solid var(--green-soft); }
+.game-filter-check { align-items: center; color: var(--ink); cursor: pointer; display: flex; font-size: 13px; gap: 8px; margin-top: 14px; }
+.game-filter-check input { accent-color: var(--green); margin: 0; }
+.game-filter-hint { color: var(--muted); display: block; font-size: 11px; line-height: 1.4; margin-top: 10px; }
+.game-filter-count { color: var(--green); font: 11px 'DM Mono', monospace; margin: 10px 0 0; }
+.game-filter-count.none { color: var(--red); }
+.game-filter .text-button { margin-top: 8px; }
 .challenge-submit { justify-content: center; margin-top: 6px; padding: 13px; }
 .primary-button:disabled { cursor: not-allowed; opacity: .45; }
 .primary-button:disabled:hover { background: var(--ink); }
@@ -425,6 +441,8 @@ h1 em { color: var(--green); font-style: italic; }
 .lobby-settings div { padding: 16px 12px 16px 0; }
 .lobby-settings div + div { border-left: 1px solid var(--line); padding-left: 18px; }
 .lobby-settings span { color: var(--muted); display: block; font: 10px 'DM Mono', monospace; letter-spacing: .06em; }
+.lobby-game-filter { color: var(--ink); font-size: 14px; margin: -14px 0 26px; }
+.lobby-game-filter span { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: .06em; margin-right: 12px; }
 .lobby-settings strong { color: var(--ink); display: block; font: 600 20px 'Playfair Display', serif; margin-top: 6px; }
 .lobby-players { border-top: 1px solid var(--line); margin-bottom: 24px; }
 .lobby-player { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto 1fr auto 110px; padding: 13px 4px; }
