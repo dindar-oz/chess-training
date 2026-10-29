@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { describeGameFilter } from '../../shared/gameFilter.ts'
 import { useRealtime, useRealtimeEvent } from '../realtime/context'
 import { formatTimeControl } from '../timeControl'
 import { readApiResponse } from '../types'
@@ -50,8 +51,9 @@ export function OpenChallengeList({ userId }: { userId: string }) {
       : <div className="open-challenge-list">{listed.map((challenge) => {
         const full = challenge.players >= challenge.maxPlayers
         const mine = challenge.creatorId === userId
+        const gameSelection = describeGameFilter(challenge.gameFilter).join(' · ')
         return <div key={challenge.id} className={`open-challenge ${full ? 'full' : ''}`}>
-          <div className="open-challenge-host"><strong>{challenge.creatorName}</strong><span>{challenge.creatorElo ?? '—'} ELO</span></div>
+          <div className="open-challenge-host"><strong>{challenge.creatorName}</strong><span>{challenge.creatorElo ?? '—'} ELO</span>{gameSelection && <small title={`Game selection: ${gameSelection}`}>{gameSelection}</small>}</div>
           <span>{formatTimeControl(challenge.timeControl)}</span>
           <span>{sideLabel(challenge.sideChoice)}</span>
           <span>Depth {challenge.depth}</span>

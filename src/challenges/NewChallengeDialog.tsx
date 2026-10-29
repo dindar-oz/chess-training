@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { gameFilterProblem } from '../../shared/gameFilter.ts'
+import type { GameFilter } from '../../shared/gameFilter.ts'
 import { defaultDepth, defaultOpenPlayers, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers } from '../../shared/challengeRules.ts'
 import { TimeControlPicker } from '../components/TimeControlPicker'
 import { useRealtime } from '../realtime/context'
@@ -7,6 +9,8 @@ import { isValidTimeControl, timeControlPresets } from '../timeControl'
 import type { TimeControl } from '../timeControl'
 import type { AuthUser, Side } from '../types'
 import { useChallenges } from './context'
+import { GameFilterFields } from './GameFilterFields'
+import { storeGameFilter, storedGameFilter, useMatchingGameCount } from './gameSelection'
 
 export type NewChallengeKind = 'invite' | 'open'
 
@@ -36,6 +40,10 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
   const [timeControl, setTimeControl] = useState<TimeControl>(storedTimeControl)
   const [depth, setDepth] = useState(defaultDepth)
   const [maxPlayers, setMaxPlayers] = useState(defaultOpenPlayers)
+  const [gameFilter, setGameFilter] = useState<GameFilter>(storedGameFilter)
+  const matchingGames = useMatchingGameCount(gameFilter)
+  // Nothing to start with: an invalid selection, or one no library game matches.
+  const noGames = gameFilterProblem(gameFilter) !== null || matchingGames === 0
   const [selected, setSelected] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -57,7 +65,7 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
     setBusy(true)
     setError('')
     try {
-      await create(isOpen ? { kind, side, timeControl, depth, maxPlayers } : { kind, side, timeControl, depth, inviteeIds: invitees })
+      await create(isOpen ? { kind, side, timeControl, depth, gameFilter, maxPlayers } : { kind, side, timeControl, depth, gameFilter, inviteeIds: invitees })
       onClose()
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Could not create the challenge.')
@@ -82,6 +90,7 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
       <div className="filter-group challenge-sides">{sideOptions.map((option) => <button key={option.value} className={side === option.value ? 'selected' : ''} onClick={() => setSide(option.value)}><span aria-hidden="true">{option.icon}</span> {option.label}</button>)}</div>
       <TimeControlPicker value={timeControl} allowUntimed={false} onChange={(value) => { if (value) { setTimeControl(value); writeStored(timeControlStorageKey, value) } }} />
       <label className="depth-control">REVIEW DEPTH <strong>{depth}</strong><input type="range" min={minDepth} max={maxDepth} value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label>
+      <GameFilterFields filter={gameFilter} matching={matchingGames} onChange={(value) => { setGameFilter(value); storeGameFilter(value) }} />
       {isOpen
         ? <label className="depth-control">MAX PLAYERS (YOU INCLUDED) <strong>{maxPlayers}</strong><input type="range" min={minOpenPlayers} max={maxOpenPlayers} value={maxPlayers} onChange={(event) => setMaxPlayers(Number(event.target.value))} /></label>
         : <>
@@ -90,8 +99,8 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
         </>}
       {error && <p className="admin-error">{error}</p>}
       {isOpen
-        ? <button className="primary-button challenge-submit" disabled={busy} onClick={() => void submit()}><span className="button-icon" aria-hidden="true">⚑</span> {busy ? 'Opening...' : 'Open challenge'}</button>
-        : <button className="primary-button challenge-submit" disabled={busy || invitees.length === 0} onClick={() => void submit()}><span className="button-icon" aria-hidden="true">⚔</span> {busy ? 'Sending...' : `Send ${invitees.length || ''} invitation${invitees.length === 1 ? '' : 's'}`}</button>}
+        ? <button className="primary-button challenge-submit" disabled={busy || noGames} onClick={() => void submit()}><span className="button-icon" aria-hidden="true">⚑</span> {busy ? 'Opening...' : 'Open challenge'}</button>
+        : <button className="primary-button challenge-submit" disabled={busy || noGames || invitees.length === 0} onClick={() => void submit()}><span className="button-icon" aria-hidden="true">⚔</span> {busy ? 'Sending...' : `Send ${invitees.length || ''} invitation${invitees.length === 1 ? '' : 's'}`}</button>}
     </div>
   </dialog>
 }

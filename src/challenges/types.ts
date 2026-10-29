@@ -1,3 +1,4 @@
+import type { GameFilter } from '../../shared/gameFilter.ts'
 import type { ReviewMove } from '../review/steps'
 import type { TimeControl } from '../timeControl'
 import type { Side } from '../types'
@@ -48,6 +49,8 @@ export type ChallengeSnapshot = {
   chatMuted: boolean
   // Seats (host included) of an open challenge; null when players were invited.
   maxPlayers: number | null
+  // Which library games the challenge may pick.
+  gameFilter: GameFilter
   startsInMs: number | null
   totalMoves: number | null
   // Only the ply count until the challenge completes; the full game afterwards.
@@ -107,6 +110,7 @@ export type OpenChallenge = {
   timeControl: TimeControl
   depth: number
   maxPlayers: number
+  gameFilter: GameFilter
   // Seated players, host included.
   players: number
   createdAt: string
@@ -116,6 +120,7 @@ export type CreateChallengeInput = {
   side: Side | 'random'
   timeControl: TimeControl
   depth: number
+  gameFilter: GameFilter
 } & ({ kind: 'invite'; inviteeIds: string[] } | { kind: 'open'; maxPlayers: number })
 
 export function liveRemainingMs(clock: ClockView, receivedAt: number, now: number) {

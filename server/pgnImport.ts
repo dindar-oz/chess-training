@@ -45,6 +45,8 @@ type GameRecord = {
   date: string
   result: string
   ply_count: number
+  white_elo: number | null
+  black_elo: number | null
   pgn: string
   fingerprint: string
   imported_at: string
@@ -55,6 +57,12 @@ let activeJobId: string | null = null
 
 function pgnHeader(pgn: string, name: string, fallback: string) {
   return pgn.match(new RegExp(`^\\[${name} "([^"]*)"\\]`, 'm'))?.[1] ?? fallback
+}
+
+// A player's rating from the WhiteElo/BlackElo header; null when missing or "?", "-" etc.
+export function pgnElo(pgn: string, side: 'White' | 'Black') {
+  const elo = Number(pgnHeader(pgn, `${side}Elo`, ''))
+  return Number.isInteger(elo) && elo > 0 ? elo : null
 }
 
 function parseGame(pgn: string): GameRecord {
@@ -68,7 +76,7 @@ function parseGame(pgn: string): GameRecord {
   const date = pgnHeader(pgn, 'Date', 'Unknown date')
   const result = pgnHeader(pgn, 'Result', '*')
   const fingerprint = createHash('sha256').update(`${white}|${black}|${event}|${date}|${result}|${moves.map((move) => move.lan).join(' ')}`).digest('hex')
-  return { id: randomUUID(), title: `${white} vs ${black}`, white, black, event, date, result, ply_count: moves.length, pgn, fingerprint, imported_at: new Date().toISOString() }
+  return { id: randomUUID(), title: `${white} vs ${black}`, white, black, event, date, result, ply_count: moves.length, white_elo: pgnElo(pgn, 'White'), black_elo: pgnElo(pgn, 'Black'), pgn, fingerprint, imported_at: new Date().toISOString() }
 }
 
 const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve))
@@ -131,7 +139,7 @@ function report(job: ImportJob) {
 // other request's writes can interleave with it on the shared connection.
 function insertBatch(database: DatabaseSync, job: ImportJob, records: GameRecord[], libraryCount: number) {
   const findDuplicate = database.prepare('SELECT 1 FROM games WHERE fingerprint = ?')
-  const insert = database.prepare('INSERT INTO games (id, title, white, black, event, date, result, ply_count, pgn, fingerprint, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  const insert = database.prepare('INSERT INTO games (id, title, white, black, event, date, result, ply_count, white_elo, black_elo, pgn, fingerprint, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
   database.exec('BEGIN')
   try {
     for (const record of records) {
@@ -140,7 +148,7 @@ function insertBatch(database: DatabaseSync, job: ImportJob, records: GameRecord
       } else if (libraryCount >= maxLibrarySize) {
         job.skippedFull += 1
       } else {
-        insert.run(record.id, record.title, record.white, record.black, record.event, record.date, record.result, record.ply_count, record.pgn, record.fingerprint, record.imported_at)
+        insert.run(record.id, record.title, record.white, record.black, record.event, record.date, record.result, record.ply_count, record.white_elo, record.black_elo, record.pgn, record.fingerprint, record.imported_at)
         job.imported += 1
         libraryCount += 1
       }

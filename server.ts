@@ -10,7 +10,7 @@ import { awardBadge, handleBadgeRequest, initBadges } from './server/badges.ts'
 import { disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
-import { importJob, startImport } from './server/pgnImport.ts'
+import { importJob, pgnElo, startImport } from './server/pgnImport.ts'
 
 type Engine = {
   listener?: (line: string) => void
@@ -54,6 +54,8 @@ database.exec(`
     date TEXT NOT NULL,
     result TEXT NOT NULL,
     ply_count INTEGER NOT NULL,
+    white_elo INTEGER,
+    black_elo INTEGER,
     pgn TEXT NOT NULL,
     fingerprint TEXT NOT NULL UNIQUE,
     imported_at TEXT NOT NULL
@@ -127,6 +129,21 @@ try {
   database.exec('CREATE UNIQUE INDEX IF NOT EXISTS games_fingerprint_unique ON games (fingerprint)')
 } catch {
   // Existing databases already have the fingerprint column or index.
+}
+let addedGameElo = false
+try {
+  database.exec('ALTER TABLE games ADD COLUMN white_elo INTEGER')
+  database.exec('ALTER TABLE games ADD COLUMN black_elo INTEGER')
+  addedGameElo = true
+} catch {
+  // Existing databases may already have the rating columns.
+}
+if (addedGameElo) {
+  // Games imported before the columns existed get their ratings from their PGN once.
+  const setElo = database.prepare('UPDATE games SET white_elo = ?, black_elo = ? WHERE id = ?')
+  database.exec('BEGIN')
+  for (const game of database.prepare('SELECT id, pgn FROM games').all() as Array<{ id: string; pgn: string }>) setElo.run(pgnElo(game.pgn, 'White'), pgnElo(game.pgn, 'Black'), game.id)
+  database.exec('COMMIT')
 }
 try {
   database.exec('ALTER TABLE users ADD COLUMN xp INTEGER NOT NULL DEFAULT 0')
