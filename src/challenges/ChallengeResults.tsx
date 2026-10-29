@@ -3,6 +3,7 @@ import { useChallenges } from './context'
 import { formatClock, formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
 import { ReviewPreview } from '../review/ReviewPreview'
+import { PlayerName } from '../titles/PlayerName'
 import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
 import { useNow } from './useNow'
@@ -58,7 +59,7 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
           : player.playStatus === 'finished' ? 'Offline · waiting for another player to analyze it'
           : `Offline${graceLeftMs === null ? '' : ` · ranked last in ${formatClock(graceLeftMs)}`}`
         return <div key={player.playerId} className={state}>
-          <strong>{player.userId === userId ? 'You' : player.username}</strong>
+          <strong>{player.userId === userId ? 'You' : <PlayerName userId={player.userId} name={player.username} />}</strong>
           <span>{label}</span>
         </div>
       })}</div>
@@ -81,7 +82,7 @@ export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalys
         const delta = result && result.eloAfter !== null && result.eloBefore !== null ? result.eloAfter - result.eloBefore : null
         return <tr key={player.playerId} className={player.userId === userId ? 'leaderboard-self' : ''}>
           <td>{result?.rank ?? '—'}</td>
-          <td>{player.username}</td>
+          <td><PlayerName userId={player.userId} name={player.username} /></td>
           <td>{result?.accuracy === null || result?.accuracy === undefined ? '—' : `${result.accuracy}%`}</td>
           <td>{result?.correctMoves ?? 0} / {player.movesPlayed}</td>
           <td>{player.playStatus ? playStatusLabels[player.playStatus] : '—'}</td>

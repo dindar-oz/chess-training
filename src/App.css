@@ -400,6 +400,12 @@ h1 em { color: var(--green); font-style: italic; }
 
 .challenge-dialog { background: var(--panel); border: 0; border-top: 4px solid var(--green); box-shadow: 0 30px 80px rgba(18, 28, 35, .35); color: var(--ink); max-height: calc(100vh - 32px); max-width: min(560px, calc(100vw - 32px)); padding: 26px 30px 28px; width: 100%; }
 .challenge-dialog::backdrop { background: rgba(18, 28, 35, .55); }
+.player-title { border: 0; color: var(--amber); font: 600 .78em 'DM Mono', monospace; letter-spacing: .04em; margin-right: .4em; text-decoration: none; }
+.title-select { background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: 12px 'DM Mono', monospace; padding: 5px 6px; }
+.elo-value { align-items: baseline; display: inline-flex; gap: 8px; }
+.elo-edit { align-items: center; display: flex; gap: 6px; }
+.elo-edit input { background: var(--panel); border: 1px solid var(--line); color: var(--ink); font: 13px 'DM Mono', monospace; padding: 5px 6px; width: 76px; }
+.elo-edit input:focus { border-color: var(--green); outline: 2px solid var(--green-soft); }
 .challenge-dialog-head { align-items: start; display: flex; gap: 16px; justify-content: space-between; }
 .challenge-dialog-head .section-label { color: var(--green); margin-bottom: 6px; }
 .challenge-dialog-head h2 { font: 600 26px/1.15 'Playfair Display', serif; margin: 0; }
