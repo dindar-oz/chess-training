@@ -8,7 +8,9 @@ import { correctionDelayMs, maxChatLength, maxInvitees, maxOpenPlayers, minOpenP
 import { anyGame, parseGameFilter, plyRange } from '../shared/gameFilter.ts'
 import type { GameFilter } from '../shared/gameFilter.ts'
 import { analysisBadgesFor, currentStreak, moveMark, streakBadgesFor } from '../shared/badges.ts'
-import { computeRatingChanges } from '../shared/elo.ts'
+import { computeRanks, computeRatingChanges } from '../shared/elo.ts'
+import { botLevels, botThinkMs, chooseBotMove, isBotLevel } from '../shared/bots.ts'
+import type { BotLevel } from '../shared/bots.ts'
 import { analysisSettings, onSearchFinished, positionVerdict, requestAnalysis, setTaskSource, storedMoveScore } from './analysis.ts'
 import type { SearchTask } from './analysis.ts'
 import { awardBadge } from './badges.ts'
@@ -99,6 +101,8 @@ type PlayerRow = {
   // When the player saw the final results (or dismissed the notice); null
   // until then, so a player who was away is told at their next visit.
   results_seen_at: string | null
+  // A practice bot's level (it has no user account); null for people.
+  bot_level: BotLevel | null
   current_elo: number | null
 }
 
@@ -127,6 +131,8 @@ let database: DatabaseSync
 let awardXp: AwardXp
 const parsedGames = new Map<string, ParsedGame>()
 const flagTimers = new Map<string, NodeJS.Timeout>()
+// A bot's next move, by player id.
+const botTimers = new Map<string, NodeJS.Timeout>()
 
 const sweepIntervalMs = 30_000
 const lobbyCreatorGraceMs = 60_000
@@ -239,6 +245,15 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
     // Existing databases may already have the column.
   }
   try {
+    database.exec('ALTER TABLE challenge_players ADD COLUMN bot_level TEXT')
+  } catch {
+    // Existing databases may already have the column.
+  }
+  // Bots in a game when the server stopped carry on.
+  for (const player of database.prepare("SELECT challenge_players.id FROM challenge_players JOIN challenges ON challenges.id = challenge_players.challenge_id WHERE challenges.status = 'playing' AND challenge_players.play_status = 'playing' AND challenge_players.bot_level IS NOT NULL").all() as Array<{ id: string }>) {
+    scheduleBot(player.id)
+  }
+  try {
     database.exec('ALTER TABLE challenge_players ADD COLUMN stepped_away_at TEXT')
   } catch {
     // Existing databases may already have the column.
@@ -279,6 +294,11 @@ function playerFor(challengeId: string, userId: string) {
 
 function isParticipant(player: PlayerRow) {
   return player.invite_status === 'creator' || player.invite_status === 'accepted'
+}
+
+// A challenge is rated when at least two people (not bots) take part.
+function isRated(players: PlayerRow[]) {
+  return players.filter((player) => isParticipant(player) && !player.bot_level).length >= 2
 }
 
 // The challenge a user is taking part in right now (lobby, playing, or awaiting
@@ -459,6 +479,8 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     timeControl: { baseSeconds: challenge.base_seconds, incrementSeconds: challenge.increment_seconds },
     depth: challenge.depth,
     analysisEngine: challenge.analysis_engine,
+    // Changes ratings: at least two people take part (bots don't count).
+    rated: isRated(players),
     createdAt: challenge.created_at,
     chatMuted: challenge.chat_muted === 1,
     maxPlayers: challenge.max_players,
@@ -475,8 +497,10 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
       .map((player) => ({
         playerId: player.id,
         userId: player.user_id,
-        username: player.user_id ? player.username : `${player.username} (deleted)`,
-        elo: player.elo_before ?? player.current_elo,
+        username: player.user_id || player.bot_level ? player.username : `${player.username} (deleted)`,
+        elo: player.bot_level ? null : player.elo_before ?? player.current_elo,
+        // A practice bot's level; null for people.
+        bot: player.bot_level,
         online: player.user_id ? isOnline(player.user_id) : false,
         inviteStatus: player.invite_status,
         playStatus: player.play_status,
@@ -746,8 +770,56 @@ function kick(challenge: ChallengeRow, user: ChallengeUser, body: Record<string,
   if (challenge.creator_id !== user.id || challenge.status !== 'lobby') throw new RequestError(409, 'Only the host can remove players before the start.')
   const target = typeof body.playerId === 'string' ? getPlayer(body.playerId) : undefined
   if (!target || target.challenge_id !== challenge.id || target.invite_status !== 'accepted') throw new RequestError(404, 'That player is not in the challenge.')
-  database.prepare("UPDATE challenge_players SET invite_status = 'kicked' WHERE id = ?").run(target.id)
+  if (target.bot_level) database.prepare('DELETE FROM challenge_players WHERE id = ?').run(target.id)
+  else database.prepare("UPDATE challenge_players SET invite_status = 'kicked' WHERE id = ?").run(target.id)
   publish(challenge.id)
+}
+
+// ---------- bots ----------
+
+// The host adds a practice bot to the waiting room; it takes a seat at once.
+function addBot(challenge: ChallengeRow, user: ChallengeUser, body: Record<string, unknown>) {
+  if (challenge.creator_id !== user.id || challenge.status !== 'lobby') throw new RequestError(409, 'Only the host can add bots before the start.')
+  if (!isBotLevel(body.level)) throw new RequestError(400, 'Choose a bot level.')
+  const seats = challenge.max_players ?? maxOpenPlayers
+  if (seatedCount(challenge.id) >= seats) throw new RequestError(409, 'The challenge is full.')
+  const base = `🤖 ${botLevels[body.level].label} bot`
+  const taken = new Set((database.prepare('SELECT username FROM challenge_players WHERE challenge_id = ? AND bot_level IS NOT NULL').all(challenge.id) as Array<{ username: string }>).map((row) => row.username))
+  let name = base
+  for (let number = 2; taken.has(name); number += 1) name = `${base} ${number}`
+  database.prepare("INSERT INTO challenge_players (id, challenge_id, user_id, username, invite_status, bot_level) VALUES (?, ?, NULL, ?, 'accepted', ?)").run(randomUUID(), challenge.id, name, body.level)
+  publish(challenge.id)
+}
+
+// Plans a bot's next move: once its clock runs (after the countdown or a
+// correction), it thinks for a while, then moves.
+function scheduleBot(playerId: string) {
+  clearTimeout(botTimers.get(playerId))
+  botTimers.delete(playerId)
+  const player = getPlayer(playerId)
+  if (!player?.bot_level || player.play_status !== 'playing' || player.next_ply === null || player.remaining_ms === null) return
+  const ply = player.next_ply
+  const now = Date.now()
+  const delay = Math.max(0, (player.clock_started_at ?? now) - now) + botThinkMs(player.bot_level, player.remaining_ms)
+  botTimers.set(playerId, setTimeout(() => botMove(playerId, ply), delay))
+}
+
+function botMove(playerId: string, ply: number) {
+  botTimers.delete(playerId)
+  const player = getPlayer(playerId)
+  const challenge = player ? getChallenge(player.challenge_id) : undefined
+  if (!player?.bot_level || !challenge || challenge.status !== 'playing' || player.play_status !== 'playing' || player.next_ply !== ply) return
+  const expected = parsedGame(challenge).moves[ply]
+  const uci = chooseBotMove(player.bot_level, {
+    masterUci: expected.lan,
+    legalUcis: new Chess(expected.before).moves({ verbose: true }).map((move) => move.lan),
+    engineBestUci: positionVerdict(expected.before, challenge.depth)?.bestUci ?? null,
+  })
+  try {
+    makeMove(challenge, player, uci)
+  } catch (error) {
+    console.error(`Bot ${player.username} in challenge ${challenge.id} could not move:`, error)
+  }
 }
 
 function readGameFilter(value: unknown) {
@@ -819,21 +891,30 @@ function startChallenge(challenge: ChallengeRow, user: ChallengeUser) {
     database.prepare("UPDATE challenge_players SET invite_status = 'expired' WHERE challenge_id = ? AND invite_status = 'invited'").run(challenge.id)
   })
   parsedGames.set(challenge.id, { moves })
-  for (const player of getPlayers(challenge.id)) if (player.play_status === 'playing') scheduleFlag(player.id)
+  for (const player of getPlayers(challenge.id)) {
+    if (player.play_status !== 'playing') continue
+    scheduleFlag(player.id)
+    scheduleBot(player.id)
+  }
   publish(challenge.id)
   // The engine starts on the game's positions right away.
   requestAnalysis()
 }
 
 function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<string, unknown>) {
-  const now = Date.now()
   const player = playerFor(challenge.id, user.id)
   if (challenge.status !== 'playing' || player?.play_status !== 'playing' || player.next_ply === null || !challenge.side) throw new RequestError(409, 'You are not playing in this challenge.')
-  if (challenge.starts_at !== null && now < challenge.starts_at) throw new RequestError(409, 'The challenge has not started yet.')
   if (body.ply !== player.next_ply) throw new RequestError(409, 'That position has already been played.')
   const uci = body.uci
   if (typeof uci !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) throw new RequestError(400, 'Invalid move.')
+  return makeMove(challenge, player, uci)
+}
 
+// Plays a player's (or a bot's) move at their current ply.
+function makeMove(challenge: ChallengeRow, player: PlayerRow, uci: string) {
+  const now = Date.now()
+  if (challenge.starts_at !== null && now < challenge.starts_at) throw new RequestError(409, 'The challenge has not started yet.')
+  if (player.next_ply === null || !challenge.side) throw new RequestError(409, 'You are not playing in this challenge.')
   const clock = clockView(player, now)
   if ((clock.remainingMs ?? 0) <= 0) {
     flagIfOverdue(player.id)
@@ -862,12 +943,13 @@ function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<str
       database.prepare('UPDATE challenge_players SET remaining_ms = ?, clock_started_at = ?, next_ply = ?, moves_played = moves_played + 1 WHERE id = ?').run(remainingMs, now + (correct ? 0 : correctionDelayMs), nextPly, player.id)
     }
   })
-  if (correct) {
+  if (correct && player.user_id) {
     const recent = database.prepare('SELECT correct FROM challenge_moves WHERE player_id = ? ORDER BY ply DESC LIMIT 10').all(player.id) as Array<{ correct: number }>
     const streak = currentStreak(recent.reverse().map((move) => move.correct === 1))
-    for (const badgeId of streakBadgesFor(streak)) awardBadge(user.id, badgeId)
+    for (const badgeId of streakBadgesFor(streak)) awardBadge(player.user_id, badgeId)
   }
   scheduleFlag(player.id)
+  scheduleBot(player.id)
   // A move off the master's line needs a search of its own.
   if (!correct) requestAnalysis()
   finishIfAllDone(challenge.id)
@@ -900,9 +982,13 @@ function completeChallenge(challengeId: string) {
       deviations: playerMoves.length - correctMoves,
     }]
   }))
-  // Deleted users keep their row for the record but are left out of the rating pool,
-  // and a challenge where nobody made a move is unrated.
-  const rated = moves.length === 0 ? [] : players.filter((player) => player.user_id && player.current_elo !== null)
+  // Everyone, bots included, is placed in the standings (unless nobody moved).
+  const ranks = moves.length === 0 ? new Map<string, number>() : computeRanks(players.map((player) => ({ id: player.id, finished: player.play_status === 'finished', accuracy: stats.get(player.id)!.accuracy })))
+  // Only people are rated, and only against each other: bots and deleted users
+  // are left out of the rating pool. A challenge with fewer than two people
+  // (one player against bots) or where nobody made a move is unrated.
+  const people = players.filter((player) => player.user_id && player.current_elo !== null)
+  const rated = moves.length === 0 || !isRated(players) ? [] : people
   const changes = new Map(computeRatingChanges(rated.map((player) => ({
     id: player.id,
     rating: player.current_elo!,
@@ -916,11 +1002,11 @@ function completeChallenge(challengeId: string) {
       const stat = stats.get(player.id)!
       const change = changes.get(player.id)
       database.prepare('UPDATE challenge_players SET accuracy = ?, original_accuracy = ?, average_cpl = ?, correct_moves = ?, deviations = ?, rank = ?, elo_before = ?, elo_after = ? WHERE id = ?')
-        .run(stat.accuracy, stat.originalAccuracy, stat.averageCpl, stat.correctMoves, stat.deviations, change?.rank ?? null, change?.before ?? null, change?.after ?? null, player.id)
+        .run(stat.accuracy, stat.originalAccuracy, stat.averageCpl, stat.correctMoves, stat.deviations, ranks.get(player.id) ?? null, change?.before ?? null, change?.after ?? null, player.id)
       if (!player.user_id || !change) continue
       database.prepare('UPDATE users SET elo = ? WHERE id = ?').run(change.after, player.user_id)
       database.prepare('INSERT OR IGNORE INTO rating_events (id, user_id, challenge_id, rating_before, rating_after, delta, rank, players, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(randomUUID(), player.user_id, challengeId, change.before, change.after, change.delta, change.rank, rated.length, completedAt)
+        .run(randomUUID(), player.user_id, challengeId, change.before, change.after, change.delta, ranks.get(player.id) ?? change.rank, rated.length, completedAt)
       // Challenges also count as training: a stats row plus the usual XP.
       if (player.moves_played > 0) {
         const sessionId = `challenge-${challengeId}-${player.user_id}`
@@ -1166,6 +1252,8 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       const body = await readJson(request)
       database.prepare('UPDATE challenges SET chat_muted = ? WHERE id = ?').run(body.muted === true ? 1 : 0, challenge.id)
       publish(challenge.id)
+    } else if (action === 'bots') {
+      addBot(challenge, user, await readJson(request))
     } else if (action === 'step-away') {
       const player = playerFor(challenge.id, user.id)!
       if (!isParticipant(player) || !player.play_status || player.play_status === 'playing' || (challenge.status !== 'playing' && challenge.status !== 'analyzing')) {

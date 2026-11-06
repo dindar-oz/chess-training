@@ -1,3 +1,4 @@
+import type { BotLevel } from '../../shared/bots.ts'
 import type { GameFilter } from '../../shared/gameFilter.ts'
 import type { ReviewMove } from '../review/steps'
 import type { TimeControl } from '../timeControl'
@@ -15,6 +16,8 @@ export type ChallengePlayer = {
   userId: string | null
   username: string
   elo: number | null
+  // A practice bot's level; null for people. Bots are never rated.
+  bot: BotLevel | null
   online: boolean
   inviteStatus: InviteStatus
   playStatus: PlayStatus | null
@@ -48,6 +51,8 @@ export type ChallengeSnapshot = {
   // The server engine that scores the moves (such as "Stockfish 19"), known
   // from the start; null for challenges scored in the players' browsers.
   analysisEngine: string | null
+  // Changes ratings: at least two people take part (bots don't count).
+  rated: boolean
   createdAt: string
   // The host muted the chat for everyone.
   chatMuted: boolean

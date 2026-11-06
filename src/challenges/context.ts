@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react'
+import type { BotLevel } from '../../shared/bots.ts'
 import type { ChallengeResultNotice, ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 export type ChallengeState = {
@@ -29,6 +30,8 @@ export type ChallengeState = {
   respond: (challengeId: string, accept: boolean) => Promise<void>
   // Takes a seat in an open challenge.
   join: (challengeId: string) => Promise<void>
+  // Host only: seats a practice bot before the start.
+  addBot: (level: BotLevel) => Promise<void>
   // Host only: removes a player before the start.
   kick: (playerId: string) => Promise<void>
   start: () => Promise<void>
