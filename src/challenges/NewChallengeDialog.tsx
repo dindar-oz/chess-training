@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { gameFilterProblem } from '../../shared/gameFilter.ts'
 import type { GameFilter } from '../../shared/gameFilter.ts'
-import { defaultDepth, defaultOpenPlayers, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers } from '../../shared/challengeRules.ts'
+import { defaultOpenPlayers, maxInvitees, maxOpenPlayers, minOpenPlayers } from '../../shared/challengeRules.ts'
 import { TimeControlPicker } from '../components/TimeControlPicker'
 import { useRealtime } from '../realtime/context'
 import { readStored, writeStored } from '../storage'
@@ -39,7 +39,6 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [side, setSide] = useState<Side | 'random'>('random')
   const [timeControl, setTimeControl] = useState<TimeControl>(storedTimeControl)
-  const [depth, setDepth] = useState(defaultDepth)
   const [maxPlayers, setMaxPlayers] = useState(defaultOpenPlayers)
   const [gameFilter, setGameFilter] = useState<GameFilter>(storedGameFilter)
   const matchingGames = useMatchingGameCount(gameFilter)
@@ -66,7 +65,7 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
     setBusy(true)
     setError('')
     try {
-      await create(isOpen ? { kind, side, timeControl, depth, gameFilter, maxPlayers } : { kind, side, timeControl, depth, gameFilter, inviteeIds: invitees })
+      await create(isOpen ? { kind, side, timeControl, gameFilter, maxPlayers } : { kind, side, timeControl, gameFilter, inviteeIds: invitees })
       onClose()
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'Could not create the challenge.')
@@ -90,7 +89,6 @@ export function NewChallengeDialog({ user, kind, onClose }: NewChallengeDialogPr
       <p className="section-label">YOUR SIDE</p>
       <div className="filter-group challenge-sides">{sideOptions.map((option) => <button key={option.value} className={side === option.value ? 'selected' : ''} onClick={() => setSide(option.value)}><span aria-hidden="true">{option.icon}</span> {option.label}</button>)}</div>
       <TimeControlPicker value={timeControl} allowUntimed={false} onChange={(value) => { if (value) { setTimeControl(value); writeStored(timeControlStorageKey, value) } }} />
-      <label className="depth-control">REVIEW DEPTH <strong>{depth}</strong><input type="range" min={minDepth} max={maxDepth} value={depth} onChange={(event) => setDepth(Number(event.target.value))} /></label>
       <GameFilterFields filter={gameFilter} matching={matchingGames} onChange={(value) => { setGameFilter(value); storeGameFilter(value) }} />
       {isOpen
         ? <label className="depth-control">MAX PLAYERS (YOU INCLUDED) <strong>{maxPlayers}</strong><input type="range" min={minOpenPlayers} max={maxOpenPlayers} value={maxPlayers} onChange={(event) => setMaxPlayers(Number(event.target.value))} /></label>

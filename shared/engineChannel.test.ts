@@ -193,3 +193,20 @@ test('a live search reports progress, and cancelling it frees the engine for the
   assert.equal((await channel.search({ fen: 'next', depth: 12, multipv: 1 })).lines[0].score.cp, 60)
   assert.ok(updates.length >= 1 && updates.every((update) => !update.done))
 })
+
+test('setup commands reach every engine before it is used, and independent searches start from a cleared engine', async () => {
+  const { start } = fakeEngine({ a: { cp: 1 }, b: { cp: 2 } })
+  const sent: string[] = []
+  const recording: StartEngine = (onLine, onCrash) => {
+    const engine = start(onLine, onCrash)
+    return { send: (command) => { sent.push(command); engine.send(command) }, terminate: engine.terminate }
+  }
+  const channel = new EngineChannel(recording, { ...fast, setup: ['setoption name Threads value 1', 'setoption name Hash value 64'], independentSearches: true })
+  await channel.search({ fen: 'a', depth: 12, multipv: 1 })
+  await channel.search({ fen: 'b', depth: 12, moveUci: 'e2e4', multipv: 1 })
+  assert.deepEqual(sent, [
+    'uci', 'setoption name Threads value 1', 'setoption name Hash value 64', 'isready',
+    'ucinewgame', 'setoption name MultiPV value 1', 'position fen a', 'go depth 12',
+    'ucinewgame', 'setoption name MultiPV value 1', 'position fen b', 'go depth 12 searchmoves e2e4',
+  ])
+})

@@ -19,7 +19,7 @@ export type ChallengePlayer = {
   inviteStatus: InviteStatus
   playStatus: PlayStatus | null
   movesPlayed: number
-  // The player's own analysis has arrived (always true with no moves).
+  // The server has scored all of the player's moves (always true with no moves).
   analysisReady: boolean
   clock: ClockView
   result: {
@@ -43,7 +43,11 @@ export type ChallengeSnapshot = {
   sideChoice: Side | 'random'
   side: Side | null
   timeControl: TimeControl
+  // The server engine's search depth for every move.
   depth: number
+  // The server engine that scores the moves (such as "Stockfish 19"), known
+  // from the start; null for challenges scored in the players' browsers.
+  analysisEngine: string | null
   createdAt: string
   // The host muted the chat for everyone.
   chatMuted: boolean
@@ -55,8 +59,8 @@ export type ChallengeSnapshot = {
   totalMoves: number | null
   // Only the ply count until the challenge completes; the full game afterwards.
   game: { plyCount: number | null; id?: string; title?: string; white?: string; black?: string; event?: string; date?: string; result?: string } | null
-  // While analyzing: how long results still wait for missing analyses.
-  analysisGraceInMs: number | null
+  // While playing or analyzing: how many of all the players' moves are scored.
+  analysisProgress: { scored: number; total: number } | null
   players: ChallengePlayer[]
   me: {
     playerId: string
@@ -65,9 +69,9 @@ export type ChallengeSnapshot = {
     clock: ClockView
     // previousUci: the move that led here, for the last-move highlight.
     position: { ply: number; fen: string; moveNumber: number; previousSan: string | null; previousUci: string | null } | null
-    // mark: ?, ?? or ! once the move has been analyzed (see moveMark).
+    // mark: ?, ?? or ! once the move has been scored (see moveMark); scores
+    // stay hidden while you're still playing.
     moves: ReviewMove[]
-    analysisSubmitted: boolean
   } | null
 }
 
@@ -119,7 +123,6 @@ export type OpenChallenge = {
 export type CreateChallengeInput = {
   side: Side | 'random'
   timeControl: TimeControl
-  depth: number
   gameFilter: GameFilter
 } & ({ kind: 'invite'; inviteeIds: string[] } | { kind: 'open'; maxPlayers: number })
 

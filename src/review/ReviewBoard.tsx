@@ -44,7 +44,8 @@ function lineToSan(fen: string, pv: string[]) {
 }
 
 // Live engine lines for the position on the board, deepening up to the
-// game's review depth in this browser.
+// game's review depth in this browser. Only for exploring: the scores in the
+// move list are the stored ones, which this engine may not match exactly.
 function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
   const engine = useMemo(() => new ClientStockfishEngine(), [])
   const key = `${depth}|${fen}`
@@ -65,7 +66,7 @@ function EnginePanel({ fen, depth }: { fen: string; depth: number }) {
   const whiteToMove = chess.turn() === 'w'
   return <div className="review-panel engine-panel" aria-live="polite">
     <div className="engine-panel-head">
-      <p className="section-label">ENGINE ANALYSIS</p>
+      <p className="section-label">LIVE ENGINE · YOUR BROWSER</p>
       <span>{gameOver ? '' : analysis ? `DEPTH ${analysis.depth}/${depth}${analysis.done ? '' : '...'}` : 'STARTING...'}</span>
     </div>
     {gameOver ? <p className="empty-log">{chess.isCheckmate() ? 'Checkmate.' : 'The game is drawn.'}</p>
@@ -115,14 +116,19 @@ function MoveInsightPanel({ step, move, analysis }: ReviewPanelContext) {
 }
 
 // What the stored analysis of your move says, so it can be checked against the
-// live engine lines below: the move's own accuracy and loss, and the saved
-// evaluations of the best move and yours, from White's point of view.
+// live engine lines below: the move's own accuracy and loss (and the master's,
+// when you played something else), and the saved evaluations of the best move
+// and yours, from White's point of view.
 function SavedAnalysis({ move }: { move: ReviewMove }) {
   const hasScores = hasSavedScores(move)
   if ((move.cpl === null || move.cpl === undefined) && !hasScores) return null
+  const loss = (cpl: number) => `${accuracyFromCpl(cpl)}% accuracy · lost ${(cpl / 100).toFixed(2)} pawns`
   return <dl className="saved-analysis">
     {move.cpl !== null && move.cpl !== undefined && <>
-      <dt>This move</dt><dd>{accuracyFromCpl(move.cpl)}% accuracy · lost {(move.cpl / 100).toFixed(2)} pawns</dd>
+      <dt>Your move</dt><dd>{loss(move.cpl)}</dd>
+    </>}
+    {!move.correct && move.originalCpl !== null && move.originalCpl !== undefined && <>
+      <dt>Master's move</dt><dd>{loss(move.originalCpl)}</dd>
     </>}
     <dt>Saved evaluation</dt>
     <dd>{hasScores ? <>best {savedScoreForWhite(move.bestScore!, move.ply)} · your move {savedScoreForWhite(move.attemptedScore!, move.ply)}</> : <span className="not-saved">not saved: this game was analysed before evaluations were kept</span>}</dd>
@@ -241,6 +247,9 @@ export function ReviewBoard({ moves, side, depth, belowBoard }: { moves: ReviewM
         <span>{plyLabel(record.ply)}</span>
         <strong>{record.attempted}{record.mark && <span className={`move-mark ${markClasses[record.mark]}`}>{record.mark}</span>}</strong>
         <span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span>
+        {record.cpl !== null && record.cpl !== undefined
+          ? <span className="move-score" title={`${accuracyFromCpl(record.cpl)}% accuracy, ${Math.round(record.cpl)} centipawns lost`}><b>{accuracyFromCpl(record.cpl)}%</b><small>{Math.round(record.cpl)} CPL</small></span>
+          : <span className="move-score" />}
       </button>)}
     </div>
     <div className="review-board-column">

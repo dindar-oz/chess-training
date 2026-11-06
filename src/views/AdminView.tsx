@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { chessTitles, maxAdminElo, minAdminElo } from '../../shared/titles.ts'
+import { AnalysisStatusPanel } from '../components/AnalysisStatusPanel'
 import { MainNav } from '../components/MainNav'
 import { PageHeader } from '../components/PageHeader'
 import { PgnImportPanel } from '../components/PgnImportPanel'
@@ -189,6 +190,7 @@ export function AdminView({ user, gameCount, onImportFinished, onNavigate, onLog
         </tr>
       })}</tbody></table></div>}
     </section>
+    <AnalysisStatusPanel />
     <PgnImportPanel onImportFinished={onImportFinished} />
   </main>
 }
