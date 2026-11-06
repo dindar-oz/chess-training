@@ -51,7 +51,7 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
       ? { ...move, mark: moveMark({ best: move.bestScore!, attempted: move.attemptedScore!, second: null, playedBest: false }) }
       : move)
     const marks: MarkCoverage = moves.some(hasSavedScores) ? 'all' : 'no-inaccuracies'
-    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy: result.learnerAccuracy, moves, others: [], marks }
+    return { title: result.gameTitle, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, scoredBy: `Scored by your browser's engine · depth ${result.depth}`, accuracy: result.learnerAccuracy, moves, others: [], marks }
   }
   const [response, others] = await Promise.all([fetch(`/api/challenges/${source.challengeId}`), loadOthers(source.challengeId)])
   const result = await readApiResponse<ChallengeSnapshot>(response)
@@ -63,7 +63,10 @@ async function loadReview(source: ReviewSource): Promise<ReviewGame> {
   const accuracy = result.players.find((player) => player.playerId === result.me!.playerId)?.result?.accuracy ?? null
   // A challenge's marks are worked out from its saved scores; without them it has none.
   const marks: MarkCoverage = result.me.moves.some(hasSavedScores) ? 'all' : 'none'
-  return { title, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, accuracy, moves: result.me.moves, others, marks }
+  const scoredBy = result.analysisEngine
+    ? `Scored on the server · ${result.analysisEngine} · depth ${result.depth} · the same for every player`
+    : `Scored in the players' browsers · depth ${result.depth}`
+  return { title, details: details.filter(Boolean).join(' · '), side: result.side, depth: result.depth, scoredBy, accuracy, moves: result.me.moves, others, marks }
 }
 
 const markNotes: Record<Exclude<MarkCoverage, 'all'>, string> = {
@@ -119,7 +122,7 @@ export function ReviewView({ user, source, from, backLabel, onBack, onNavigate, 
     <div className="review-page-head">
       <button className="text-button review-back" onClick={onBack}>← {backLabel}</button>
       {game && <>
-        <div className="review-title"><h2>{game.title}</h2><span>{game.details}</span></div>
+        <div className="review-title"><h2>{game.title}</h2><span>{game.details}</span><span className="review-scored-by">{game.scoredBy}</span></div>
         <ReviewSummary game={game} plotShown={plotShown} onTogglePlot={canPlot ? togglePlot : null} />
       </>}
     </div>
