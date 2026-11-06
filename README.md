@@ -66,7 +66,7 @@ Before choosing a side, pick a time control: Untimed (default), a preset such as
 
 ## Challenges
 
-The **Challenges** page opens on the lobby, a live list of open challenges, with two buttons beside it for creating one. Both open a dialog where you choose a side (White, Black or Random), a time control and the engine review depth:
+The **Challenges** page opens on the lobby, a live list of open challenges, with two buttons beside it for creating one. Both open a dialog where you choose a side (White, Black or Random) and a time control:
 
 - **Challenge by invitation**: tick online players to invite and send. Invitees get a pop-up on any screen and can accept or decline.
 - **Open challenge**: choose the maximum number of players (2-10, you included). The challenge appears in everyone's lobby, and anyone can join it with one click while a seat is free.
@@ -79,7 +79,7 @@ At the start the server picks a random game from the library (preferring games o
 - The server keeps every clock: it charges thinking time, adds the increment, pauses 1.1 s after a deviation while the line is restored, and flags players whose time runs out (also after a server restart; clocks keep running while the server is down).
 - Players see each other's progress and clocks, never their moves.
 
-Each player's browser analyzes **their own moves** with Stockfish in the background while they play, at the depth chosen for the challenge, and submits the results automatically as soon as they finish, time out or resign (a reload resumes it). The server ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP as soon as every player's analysis is in, which is usually within a second of the last move. If a player who finished the game on time has left (or their page never sends the analysis), the other players' browsers analyze that player's moves for them once everyone is done: immediately if the player is offline, or after 60 seconds if they still look connected. A player who timed out or resigned and whose analysis hasn't arrived 10 minutes after everyone finished is ranked last. The waiting screen shows each player's status live. Players are trusted to report their own analysis. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
+**The server scores every move** with its own Stockfish (see [Challenge scoring](#challenge-scoring-on-the-server)), so every player is judged by the same engine at the same depth, whatever their browser can run. It starts on the game's positions as soon as the challenge starts and searches each move a player makes as it comes in, so scoring mostly keeps pace with the game. Scores stay hidden from a player until they have finished. Once everyone has finished, timed out or resigned, the waiting screen shows the scoring progress; players can leave, and results arrive as soon as the last move is scored. The server then ranks players (finishers above timeouts and resignations, then by accuracy), updates ELO, and records each player's challenge as a training session with XP. A challenge whose moves still aren't all scored 3 hours after everyone finished is voided (the engine must be failing), and nobody's rating changes. Lobbies are cancelled if the creator is offline for over a minute or nobody starts them within 30 minutes.
 
 ### Challenge chat
 
@@ -128,7 +128,7 @@ The **Awards** tab shows every badge, earned or still locked. Each badge pays XP
 | **Flawless** | Finish a challenge without a mistake (?) or a blunder. | 150 |
 | **Sharp Eye** | Find 3 only moves (!) in one challenge. | 100 |
 
-The last six are engine badges: they count only in challenges reviewed at depth 21 or more, and "finish" means playing every move on time. They are judged as on lichess, by winning chances from -1 (lost) to 1 (won): a move that loses 0.2 of them is a mistake and 0.3 a blunder, so dropping from +9 to +6 in a won position is neither. An only move is the engine's best move when the second-best move loses at least 0.2, and a move beats the master's when it keeps at least 0.05 more (so engine noise between equal moves doesn't count). At depth 21 or more each player's browser also searches the second-best move of every position, which makes the review a little slower. The rules live in `shared/badges.ts` with tests.
+The last six are engine badges: they count only in challenges scored at depth 21 or more (the server's default depth is 24), and "finish" means playing every move on time. They are judged as on lichess, by winning chances from -1 (lost) to 1 (won): a move that loses 0.2 of them is a mistake and 0.3 a blunder, so dropping from +9 to +6 in a won position is neither. An only move is the engine's best move when the second-best move loses at least 0.2, and a move beats the master's when it keeps at least 0.05 more (so engine noise between equal moves doesn't count). For only moves the server searches the two best moves of every position. The rules live in `shared/badges.ts` with tests.
 
 The server awards badges and remembers them per account. A new badge is celebrated once, with an animation and a fanfare: as a small corner card that doesn't block the board while your challenge clock is running, and as a full-screen moment otherwise. A badge earned while no page was open is celebrated at your next visit. Badges for play from before badges existed are granted automatically when the server starts, and XP for badges earned before badges paid XP is paid once at startup. Engine badges aren't granted for old challenges, which didn't store the scores they need.
 
@@ -138,6 +138,27 @@ The app plays short sounds, synthesized in the browser (no audio files): your mo
 
 ## Engine review
 
-Stockfish runs in the browser in a Web Worker. Before starting a session you pick the review depth (12-30, remembered for next time); each move is then reviewed in the background while you play: the engine searches the position's best move while you think, and the master's move and yours right after you move. The review at the end therefore appears almost immediately. Changing the depth on the review panel afterwards re-runs the review at the new depth.
+In solo training, Stockfish runs in the browser in a Web Worker. Before starting a session you pick the review depth (12-30, remembered for next time); each move is then reviewed in the background while you play: the engine searches the position's best move while you think, and the master's move and yours right after you move. The review at the end therefore appears almost immediately. Changing the depth on the review panel afterwards re-runs the review at the new depth.
 
 Each move is scored by centipawn loss against the engine's best move at the same depth, converted to an accuracy percentage; the master's original move is scored the same way for comparison. Historical matching is separate and is decided by exact move equality: a different move can be historically incorrect but objectively stronger.
+
+The analysis page of a finished game shows each move's accuracy and centipawn loss in the move list, and says who scored them. Its live engine panel always runs in your browser and is only for exploring; it may see a position slightly differently from the stored scores.
+
+### Challenge scoring on the server
+
+Challenges are scored by the server (`server/analysis.ts`), never by players' browsers, so that every player gains or loses exactly the same from the same move:
+
+- **Each search is done once.** For each position of the challenge game the server searches the two best lines, and each other move played in it (the master's or a player's) with a search restricted to that move. Results are stored per engine and depth; everyone who reached that position or played that move is judged from the same stored result.
+- **The engine's best move costs nothing.** It counts as 0 centipawns lost and 100% accuracy without a search of its own. Any other move loses what it falls short of the best line, never less than 0.
+- **Searches are repeatable.** One thread, a fixed hash size, a cleared hash before each search, and a fixed depth, so a result doesn't depend on what was searched before.
+- **Mates** count as ±100,000 centipawns, so missing a forced mate costs about everything.
+
+Settings, as environment variables:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ANALYSIS_DEPTH` | 24 | Search depth for new challenges (12-30). Each search at depth 24 takes roughly 10-20 seconds on one core. |
+| `ANALYSIS_WORKERS` | CPU cores - 1 (at least 1) | Engines searching in parallel. Each runs in its own process at a lower priority than the web server. |
+| `STOCKFISH_PATH` | set in the Docker image | A native Stockfish binary. Without it (as in local development) the server uses the slower WASM build from the `stockfish` npm package. |
+
+The Docker image includes the official Stockfish 19 Linux build (GPLv3; its license is in `/usr/local/share/doc/stockfish`), which picks the fastest code the CPU supports. Admins see the engine, depth, workers, CPU cores, waiting searches and average search time in the **Admin** tab, and on Azure App Service also the plan's tier. Azure's Free and Shared tiers limit CPU time per day, which depth-24 analysis can exhaust.

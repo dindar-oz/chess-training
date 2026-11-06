@@ -186,6 +186,9 @@ h1 em { color: var(--green); font-style: italic; }
 .stats-summary div + div { border-left: 1px solid var(--line); padding-left: 20px; }
 .stats-summary span, .history-row span { color: var(--muted); display: block; font: 10px 'DM Mono', monospace; letter-spacing: .06em; }
 .stats-summary strong { color: var(--ink); display: block; font: 600 32px 'Playfair Display', serif; margin-top: 7px; }
+.analysis-status-grid { margin: 18px 0; }
+.analysis-status-grid strong { font-size: 20px; overflow-wrap: anywhere; }
+.analysis-status-grid small { color: var(--muted); display: block; font: 11px 'DM Mono', monospace; margin-top: 4px; }
 .history-section { border-top: 2px solid var(--ink); padding-top: 22px; }
 .section-heading { align-items: end; display: flex; justify-content: space-between; margin-bottom: 26px; }
 .history-list { border-top: 1px solid var(--line); }
