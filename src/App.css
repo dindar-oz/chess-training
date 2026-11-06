@@ -472,6 +472,12 @@ h1 em { color: var(--green); font-style: italic; }
 .lobby-player.kicked b { color: var(--red); }
 .lobby-kick { color: var(--red); text-align: right; }
 .offline-dot { background: var(--line); border-radius: 50%; display: inline-block; height: 7px; width: 7px; }
+.bot-dot { background: var(--amber); border-radius: 2px; display: inline-block; height: 7px; width: 7px; }
+.add-bot { align-items: center; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 14px; margin: -12px 0 22px; padding: 0 4px 18px; }
+.add-bot > span { color: var(--muted); font: 10px 'DM Mono', monospace; letter-spacing: .06em; }
+.add-bot .filter-group { margin: 0; }
+.add-bot p { color: var(--muted); flex-basis: 100%; font-size: 12px; margin: 0; }
+.lobby-unrated { background: var(--paper); color: var(--muted); font-size: 13px; margin: 0 0 18px; padding: 10px 12px; }
 .lobby-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 18px; }
 .lobby-actions .empty-log { flex-basis: 100%; margin: 0; }
 

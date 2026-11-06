@@ -92,10 +92,10 @@ export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, on
           <td>{result?.accuracy === null || result?.accuracy === undefined ? '—' : `${result.accuracy}%`}</td>
           <td>{result?.correctMoves ?? 0} / {player.movesPlayed}</td>
           <td>{player.playStatus ? playStatusLabels[player.playStatus] : '—'}</td>
-          <td>{result?.eloAfter ?? '—'}{delta !== null && <b className={delta >= 0 ? 'rating-gain' : 'rating-loss'}> {delta >= 0 ? `+${delta}` : delta}</b>}</td>
+          <td>{player.bot ? 'Bot' : result?.eloAfter ?? '—'}{delta !== null && <b className={delta >= 0 ? 'rating-gain' : 'rating-loss'}> {delta >= 0 ? `+${delta}` : delta}</b>}</td>
         </tr>
       })}</tbody></table></div>
-      <p className="results-note">Finishers rank above players who ran out of time or resigned. Otherwise higher accuracy wins, and accuracies within 1% count as a draw.</p>
+      <p className="results-note">Finishers rank above players who ran out of time or resigned. Otherwise higher accuracy wins, and accuracies within 1% count as a draw.{challenge.players.some((player) => player.bot) && ' Bots are placed in the standings but never rated, and nobody is rated against them.'}{!challenge.rated && ' This challenge was unrated: only one person took part.'}</p>
     </>}
 
     {challenge.me && challenge.me.moves.length > 0 && challenge.side && !pending

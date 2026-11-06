@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { computeRatingChanges, expectedScore, initialRating, pairScore, ratingFloor } from './elo.ts'
+import { computeRanks, computeRatingChanges, expectedScore, initialRating, pairScore, ratingFloor } from './elo.ts'
 import type { RatedParticipant } from './elo.ts'
 
 const player = (id: string, accuracy: number | null, rating = initialRating, finished = true): RatedParticipant => ({ id, rating, finished, accuracy })
@@ -76,4 +76,14 @@ test('ratings never fall below the floor', () => {
 
 test('a lone participant is unrated', () => {
   assert.deepEqual(computeRatingChanges([player('solo', 90)]), [{ id: 'solo', before: initialRating, after: initialRating, delta: 0, rank: 1 }])
+})
+
+test('standings rank everyone by the rating rule, draws sharing a place', () => {
+  const ranks = computeRanks([
+    { id: 'bot', finished: true, accuracy: 95 },
+    { id: 'human', finished: true, accuracy: 80 },
+    { id: 'tied', finished: true, accuracy: 80.5 },
+    { id: 'timeout', finished: false, accuracy: 99 },
+  ])
+  assert.deepEqual([...ranks], [['bot', 1], ['human', 2], ['tied', 2], ['timeout', 4]])
 })

@@ -173,6 +173,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
       create: async (input: CreateChallengeInput) => apply(await request<ChallengeSnapshot>('/api/challenges', input)),
       respond: async (id: string, accept: boolean) => apply(await request<ChallengeSnapshot>(`/api/challenges/${id}/respond`, { accept })),
       join: async (id: string) => apply(await request<ChallengeSnapshot>(`/api/challenges/${id}/join`, {})),
+      addBot: async (level) => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/bots`, { level })),
       kick: async (playerId: string) => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/kick`, { playerId })),
       start: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/start`, {})),
       cancel: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/cancel`, {})),

@@ -71,7 +71,9 @@ The **Challenges** page opens on the lobby, a live list of open challenges, with
 - **Challenge by invitation**: tick online players to invite and send. Invitees get a pop-up on any screen and can accept or decline.
 - **Open challenge**: choose the maximum number of players (2-10, you included). The challenge appears in everyone's lobby, and anyone can join it with one click while a seat is free.
 
-Either way the creator starts once at least one player has accepted or joined (invitations still open at that moment expire), and can remove a player from the waiting room before the start; a removed player can't rejoin that challenge. A player is in one challenge at a time: someone in a waiting room who joins an open challenge or accepts an invitation is asked to confirm, then leaves their current challenge, and a host who does so cancels theirs. Players in a running game can't join another. The lobby stays visible below the waiting room for that purpose. Your past challenges are listed under the lobby.
+In the waiting room the host can also **add practice bots**, at three levels: Weak, Medium and Strong play the master's move about 40%, 65% and 85% of the time. When a bot strays it plays the engine's best move if the server has already searched the position, and the weak bot sometimes plays a random legal move instead. A bot takes a seat at once, plays on the server with its own clock (thinking a few seconds per move), and can be removed like a player. Bots are placed in the standings but never rated, and nobody is rated against them; a challenge with only one person (against bots) is unrated. The rules live in `shared/bots.ts` with tests.
+
+Either way the creator starts once at least one player (or bot) has accepted or joined (invitations still open at that moment expire), and can remove a player from the waiting room before the start; a removed player can't rejoin that challenge. A player is in one challenge at a time: someone in a waiting room who joins an open challenge or accepts an invitation is asked to confirm, then leaves their current challenge, and a host who does so cancels theirs. Players in a running game can't join another. The lobby stays visible below the waiting room for that purpose. Your past challenges are listed under the lobby.
 
 At the start the server picks a random game from the library (preferring games of 20+ plies). Everyone plays the same side with the same clock after a 3-second countdown. To keep it fair:
 
@@ -89,7 +91,7 @@ Players in a challenge (the host and everyone who accepted) share a simple messa
 
 ## ELO rating
 
-Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. In a challenge, every pair of participants counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.
+Every player starts at 1200. Only challenges change the rating; solo training earns XP but never ELO. Bots are left out of the rating, so a challenge needs at least two people to be rated. In a challenge, every pair of people counts as one game: a player who finished beats anyone who timed out or left, otherwise the higher accuracy wins, and accuracies less than 1% apart are a draw. K is 32 divided by (players - 1), so a large challenge moves ratings about as much as a duel. Ratings never fall below 100. The math lives in `shared/elo.ts`; run its tests with `npm test`.
 
 ## Live updates
 

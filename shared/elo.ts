@@ -46,6 +46,14 @@ export function expectedScore(rating: number, opponentRating: number) {
   return 1 / (1 + 10 ** ((opponentRating - rating) / 400))
 }
 
+// Places in the final standings (1-based; players who draw share a place),
+// by the same pairwise rule as the ratings. Bots are ranked too, though they
+// are left out of the ratings.
+export function computeRanks(participants: Array<Pick<RatedParticipant, 'id' | 'finished' | 'accuracy' | 'forfeited'>>) {
+  const asRated = participants.map((participant) => ({ ...participant, rating: 0 }))
+  return new Map(asRated.map((player) => [player.id, asRated.filter((opponent) => opponent !== player && pairScore(player, opponent) === 0).length + 1]))
+}
+
 export function computeRatingChanges(participants: RatedParticipant[]): RatingChange[] {
   const k = participants.length > 1 ? kFactor / (participants.length - 1) : 0
   return participants.map((player) => {
