@@ -229,7 +229,7 @@ function App() {
             <ReviewView user={authUser} source={review.source} from={review.from} backLabel={reviewBackLabels[review.from] ?? 'Back'} onBack={closeReview} onNavigate={navigate} onLogout={viewProps.onLogout} />
           </ErrorBoundary>}
           <UpdateBanner view={view} trainingOpened={trainingKey > 0} reviewing={review !== null} />
-          <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} />
+          <InvitationToasts userId={authUser.id} onAccepted={() => navigate('challenges')} onOpenResults={() => navigate('challenges')} onChallengesScreen={view === 'challenges' && review === null} />
           {authUser.role === 'admin' && <AdminNotices onOpenAdmin={() => navigate('admin')} />}
         </BadgeProvider>
       </ChallengeProvider>

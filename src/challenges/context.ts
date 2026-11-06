@@ -1,9 +1,19 @@
 import { createContext, useContext } from 'react'
-import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
+import type { ChallengeResultNotice, ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 export type ChallengeState = {
   current: ReceivedSnapshot | null
   invitations: ChallengeSnapshot[]
+  // Results that are ready but not yet seen, newest first.
+  results: ChallengeResultNotice[]
+  // Results someone asked to see (from a notice), for the Challenges page to open.
+  requestedResults: string | null
+  showResults: (challengeId: string) => void
+  clearRequestedResults: () => void
+  // You've seen these results (or dismissed the notice): the notice goes away for good.
+  markResultsSeen: (challengeId: string) => void
+  // Leaves the current challenge once you've finished, before its results.
+  stepAway: () => Promise<void>
   notice: string | null
   // Chat of the current challenge, oldest first. Kept only in memory: messages
   // are relayed live and never stored, so a reload starts with an empty chat.

@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import { formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
 import { ReviewPreview } from '../review/ReviewPreview'
 import { PlayerName } from '../titles/PlayerName'
+import { useChallenges } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
 
 const playStatusLabels: Record<PlayStatus, string> = {
@@ -20,15 +22,41 @@ type ChallengeResultsProps = {
   closeLabel: string
   // Only the current challenge has a live chat; past ones are shown without it.
   showChat: boolean
+  // Leaves the challenge before its results (only for your current challenge).
+  onStepAway?: () => void
 }
 
-export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, onClose, closeLabel, showChat }: ChallengeResultsProps) {
+const notifiedNote = "You'll be notified when the results arrive, on any page of the site or at your next visit."
+
+export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, onClose, closeLabel, showChat, onStepAway }: ChallengeResultsProps) {
+  const { markResultsSeen } = useChallenges()
+  const over = challenge.status === 'complete' || challenge.status === 'void'
+  const pending = challenge.status === 'playing' || challenge.status === 'analyzing'
+  // Showing the final results counts as seeing them: no notice for them.
+  const isPlayer = challenge.me !== null
+  useEffect(() => {
+    if (over && isPlayer) markResultsSeen(challenge.id)
+  }, [challenge.id, isPlayer, markResultsSeen, over])
   const ranked = [...challenge.players].sort((a, b) => (a.result?.rank ?? 99) - (b.result?.rank ?? 99))
   const game = challenge.game
   const progress = challenge.analysisProgress
   const percent = progress && progress.total > 0 ? Math.round((progress.scored / progress.total) * 100) : 0
 
+  const leave = onStepAway && <div className="step-away">
+    <button className="primary-button" onClick={onStepAway}>Leave the challenge</button>
+    <p>{notifiedNote}</p>
+  </div>
+
   return <section className="history-section challenge-results">
+    {challenge.status === 'playing' && <>
+      <div className="section-heading"><div><p className="section-label">RESULTS PENDING</p><h2>You're done. Waiting for the other players.</h2></div></div>
+      <div className="analysis-players">{challenge.players.map((player) => <div key={player.playerId} className={player.playStatus === 'playing' ? 'analyzing' : 'ready'}>
+        <strong>{player.userId === userId ? 'You' : <PlayerName userId={player.userId} name={player.username} />}</strong>
+        <span>{player.playStatus ? playStatusLabels[player.playStatus] : '—'}</span>
+      </div>)}</div>
+      {leave ?? <p className="results-note">{notifiedNote}</p>}
+    </>}
+
     {challenge.status === 'analyzing' && <>
       <div className="section-heading"><div><p className="section-label">ENGINE REVIEW</p><h2>Everyone is done. Scoring the moves.</h2></div></div>
       {progress && <div className="analysis-progress" aria-live="polite">
@@ -40,7 +68,8 @@ export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, on
         <strong>{player.userId === userId ? 'You' : <PlayerName userId={player.userId} name={player.username} />}</strong>
         <span>{player.analysisReady ? 'Scored ✓' : 'Scoring...'}</span>
       </div>)}</div>
-      <p className="results-note">The server's engine scores everyone's moves the same way: the same move in the same position always costs the same, and the engine's own best move always counts as 100%. Results appear as soon as the last move is scored; you don't need to keep this page open.</p>
+      <p className="results-note">The server's engine scores everyone's moves the same way: the same move in the same position always costs the same, and the engine's own best move always counts as 100%.</p>
+      {leave ?? <p className="results-note">{notifiedNote}</p>}
     </>}
 
     {challenge.status === 'void' && <>
@@ -69,10 +98,10 @@ export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, on
       <p className="results-note">Finishers rank above players who ran out of time or resigned. Otherwise higher accuracy wins, and accuracies within 1% count as a draw.</p>
     </>}
 
-    {challenge.me && challenge.me.moves.length > 0 && challenge.side && challenge.status !== 'analyzing'
+    {challenge.me && challenge.me.moves.length > 0 && challenge.side && !pending
       ? <ReviewPreview moves={challenge.me.moves} side={challenge.side} onAnalyze={() => onAnalyze(challenge.id)} />
       : challenge.me && challenge.me.moves.length > 0 && <div className="move-log results-moves"><p className="section-label">YOUR MOVES</p>{challenge.me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>}
     {showChat && <ChallengeChat userId={userId} />}
-    {challenge.status !== 'analyzing' && <button className="primary-button results-close" onClick={onClose}>{closeLabel}</button>}
+    {(!pending || !onStepAway) && <button className="primary-button results-close" onClick={onClose}>{closeLabel}</button>}
   </section>
 }

@@ -72,6 +72,8 @@ export type ChallengeSnapshot = {
     // mark: ?, ?? or ! once the move has been scored (see moveMark); scores
     // stay hidden while you're still playing.
     moves: ReviewMove[]
+    // You finished and left before the results; you're notified when they're ready.
+    steppedAway: boolean
   } | null
 }
 
@@ -80,7 +82,8 @@ export type ReceivedSnapshot = { snapshot: ChallengeSnapshot; receivedAt: number
 
 export type ChallengeHistoryEntry = {
   id: string
-  status: 'complete' | 'void'
+  // pending: you finished and left; the results aren't in yet (the game stays secret).
+  status: 'complete' | 'void' | 'pending'
   gameTitle: string | null
   completedAt: string | null
   createdAt: string
@@ -93,6 +96,20 @@ export type ChallengeHistoryEntry = {
   players: number
   // Your moves in it; a challenge you played no moves in has nothing to analyze.
   movesPlayed: number
+}
+
+// The notice that a challenge's results are ready (or that it was voided),
+// sent when it ends and again at each visit until you've seen the results.
+export type ChallengeResultNotice = {
+  challengeId: string
+  status: 'complete' | 'void'
+  // Revealed with the results; null for a voided challenge.
+  gameTitle: string | null
+  players: number
+  rank: number | null
+  accuracy: number | null
+  eloBefore: number | null
+  eloAfter: number | null
 }
 
 export type ChatMessage = {

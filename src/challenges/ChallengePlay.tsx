@@ -27,7 +27,7 @@ const playStatusLabels: Record<PlayStatus, string> = {
 // the server gives the clock before showing the restored historical position.
 export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot; userId: string }) {
   const { snapshot, receivedAt } = received
-  const { move, resign } = useChallenges()
+  const { move, resign, stepAway } = useChallenges()
   const [pendingFen, setPendingFen] = useState<string | null>(null)
   const [correction, setCorrection] = useState<{ fen: string; expected: string } | null>(null)
   const [lastFen, setLastFen] = useState<string | null>(null)
@@ -137,10 +137,18 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
     }
   }
 
+  async function leave() {
+    try {
+      await stepAway()
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : 'Could not leave the challenge.')
+    }
+  }
+
   const statusTitle = !started ? 'Get ready' : !iAmPlaying ? (me?.playStatus === 'finished' ? 'You finished' : me?.playStatus === 'timed_out' ? 'Time is up' : 'You resigned')
     : correction ? 'Historical correction' : 'Your move'
   const statusText = !started ? `The clocks start in ${Math.ceil(startsInMs / 1000)}...`
-    : !iAmPlaying ? 'Waiting for the other players. The game is revealed once everyone is done.'
+    : !iAmPlaying ? "Waiting for the other players. The game is revealed once everyone is done. You can leave now: you'll be notified when the results arrive."
     : message || (position?.previousSan ? `The game continued ${position.previousSan}. Find the master's reply.` : 'Play the opening move from the original game.')
 
   return <section className="game-layout challenge-play">
@@ -185,6 +193,7 @@ export function ChallengePlay({ received, userId }: { received: ReceivedSnapshot
 
       <div className="move-log"><p className="section-label">YOUR MOVES</p>{!me || me.moves.length === 0 ? <p className="empty-log">Your moves will appear here.</p> : me.moves.map((record) => <div className="move-row" key={record.ply}><span>{Math.floor(record.ply / 2) + 1}{record.ply % 2 === 1 ? '...' : '.'}</span><strong>{record.attempted}</strong><span className={record.correct ? 'match' : 'deviation'}>{record.correct ? 'MATCH' : `→ ${record.expected}`}</span></div>)}</div>
       {iAmPlaying && started && <button className="text-button resign-button" onClick={() => void confirmResign()}>Resign</button>}
+      {!iAmPlaying && started && me && <button className="primary-button step-away-button" onClick={() => void leave()}>Leave the challenge</button>}
       <div className="panel-note"><span>♟</span><p>Only your clock matters: the opponent side's historical moves are instant, and a deviation pauses your clock while the line is restored. Nobody sees anyone else's moves.</p></div>
     </aside>
   </section>
