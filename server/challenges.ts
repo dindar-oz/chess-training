@@ -3,18 +3,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
 import type { Move } from 'chess.js'
-import { accuracyFromCpl } from '../shared/accuracy.ts'
-import { analysisGraceMs, correctionDelayMs, maxChatLength, maxDepth, maxInvitees, maxOpenPlayers, minDepth, minOpenPlayers, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
+import { accuracyFromCpl, judgeMove } from '../shared/accuracy.ts'
+import { correctionDelayMs, maxChatLength, maxInvitees, maxOpenPlayers, minOpenPlayers, preferredMinPlies, startCountdownMs } from '../shared/challengeRules.ts'
 import { anyGame, parseGameFilter, plyRange } from '../shared/gameFilter.ts'
 import type { GameFilter } from '../shared/gameFilter.ts'
 import { analysisBadgesFor, currentStreak, moveMark, streakBadgesFor } from '../shared/badges.ts'
 import { computeRatingChanges } from '../shared/elo.ts'
+import { analysisSettings, onSearchFinished, positionVerdict, requestAnalysis, setTaskSource, storedMoveScore } from './analysis.ts'
+import type { SearchTask } from './analysis.ts'
 import { awardBadge } from './badges.ts'
 import { RequestError, allowRequest, readJson, sendError, sendJson } from './http.ts'
 import { broadcast, isOnline, sendToUser, updateOnlineUser } from './realtime.ts'
 
 // Challenge lifecycle: lobby -> playing -> analyzing -> complete, with cancelled
-// (from lobby) and void (analysis never delivered) as dead ends.
+// (from lobby) and void (analysis could not be finished) as dead ends.
 //
 // Players get into a challenge's lobby (the waiting room) in one of two ways: the
 // creator invites online players, or the creator opens it with a number of seats
@@ -24,8 +26,11 @@ import { broadcast, isOnline, sendToUser, updateOnlineUser } from './realtime.ts
 // The server keeps each player's Fischer clock and never sends the game's moves or
 // identity to clients before the challenge completes: a player only ever receives
 // the position they must move in, so the master's moves can't be read in advance.
-// The creator's browser runs the engine analysis; the server turns the submitted
-// centipawn losses into accuracies, rankings, ELO, XP and training stats.
+// The server's engine (analysis.ts) scores every move while the game is played:
+// from the start it works through the game's positions in order, and each move
+// a player makes is searched as it comes in. Once everyone is done, results
+// follow as soon as the last searches finish; the scores become accuracies,
+// rankings, ELO, XP and training stats.
 
 type ChallengeUser = { id: string; username: string; elo: number }
 type AwardXp = (userId: string, sessionId: string, correctMoves: number, deviations: number, attemptedMoves: number, completed: boolean) => unknown
@@ -62,6 +67,9 @@ type ChallengeRow = {
   max_players: number | null
   // The host's GameFilter as JSON; null for challenges from before filters.
   game_filter: string | null
+  // The server engine that scored the moves (such as "Stockfish 19"), set at
+  // the start; null for challenges scored in the players' browsers.
+  analysis_engine: string | null
 }
 
 type PlayerRow = {
@@ -92,13 +100,13 @@ type MoveRow = {
   player_id: string
   ply: number
   correct: number
-  // Centipawn losses of the player's move and of the master's move, from the
-  // player's own analysis; null until submitted.
+  // Centipawn losses of the player's move and of the master's move; null until
+  // the server has scored the move.
   cpl: number | null
   original_cpl: number | null
   // Raw engine scores in centipawns for the mover (mates as +-100000) and the
-  // engine's best move, for the engine badges; null from older pages, and the
-  // second-best score only at badge depth.
+  // engine's best move, for the marks and engine badges; null in challenges
+  // scored by browsers before those existed.
   best_score: number | null
   attempted_score: number | null
   original_score: number | null
@@ -117,7 +125,9 @@ const flagTimers = new Map<string, NodeJS.Timeout>()
 const sweepIntervalMs = 30_000
 const lobbyCreatorGraceMs = 60_000
 const lobbyMaxAgeMs = 30 * 60 * 1000
-const maxAnalysisBytes = 1024 * 1024
+// A challenge whose moves still aren't all scored this long after everyone
+// finished is voided: the engine must be failing.
+const analysisTimeoutMs = 3 * 60 * 60 * 1000
 
 export function initChallenges(dependencies: { database: DatabaseSync; awardXp: AwardXp }) {
   database = dependencies.database
@@ -211,6 +221,19 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
       // Existing databases may already have the column.
     }
   }
+  try {
+    database.exec('ALTER TABLE challenges ADD COLUMN analysis_engine TEXT')
+    // Scoring just moved to the server: challenges still running are scored
+    // there from scratch, so nobody keeps a score from their own browser.
+    database.exec(`
+      UPDATE challenge_moves SET cpl = NULL, original_cpl = NULL, best_score = NULL, attempted_score = NULL, original_score = NULL, second_score = NULL, best_uci = NULL
+      WHERE challenge_id IN (SELECT id FROM challenges WHERE status IN ('playing', 'analyzing'))
+    `)
+  } catch {
+    // Existing databases may already have the column.
+  }
+  setTaskSource(searchesWanted)
+  onSearchFinished(scoreActiveChallenges)
   setInterval(sweep, sweepIntervalMs).unref()
 }
 
@@ -251,27 +274,27 @@ function currentChallengeId(userId: string) {
 }
 
 // Busy users can't create or join another challenge. A finished player waiting on
-// analysis is free again, except the creator, whose browser runs that analysis.
+// the server's analysis is free again.
 function isBusy(userId: string) {
   const row = database.prepare(`
     SELECT 1 FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
-      AND (challenges.status IN ('lobby', 'playing') OR (challenges.status = 'analyzing' AND challenges.creator_id = ?))
+      AND challenges.status IN ('lobby', 'playing')
     LIMIT 1
-  `).get(userId, userId)
+  `).get(userId)
   return row !== undefined
 }
 
 // A player is in one challenge at a time, but someone still in a waiting room may
 // move on: joining or accepting another challenge takes them out of the old one.
-// Only a game in progress (or the creator's analysis) holds them.
+// Only a game in progress holds them.
 function isLockedIn(userId: string) {
   const row = database.prepare(`
     SELECT 1 FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
-      AND (challenges.status = 'playing' OR (challenges.status = 'analyzing' AND challenges.creator_id = ?))
+      AND challenges.status = 'playing'
     LIMIT 1
-  `).get(userId, userId)
+  `).get(userId)
   return row !== undefined
 }
 
@@ -331,20 +354,28 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     const move = game.moves[me.next_ply]
     position = { ply: me.next_ply, fen: move.before, moveNumber: Math.floor(me.next_ply / 2) + 1, previousSan: me.next_ply > 0 ? game.moves[me.next_ply - 1].san : null, previousUci: me.next_ply > 0 ? game.moves[me.next_ply - 1].lan : null }
   }
-  // A player's own moves include the position and UCI moves so their browser can
-  // analyze them, and once analyzed their ?/??/! marks, centipawn losses (theirs
-  // and the master's) and the saved scores of the best move and theirs (for the
-  // mover); nobody receives anyone else's moves.
+  // A player's own moves, with the position and UCI moves for the analysis
+  // page, and once scored their ?/??/! marks, centipawn losses (theirs and the
+  // master's) and the scores of the best move and theirs (for the mover).
+  // Scores stay hidden until the player has finished, so the engine's opinion
+  // can't help them during the game; nobody receives anyone else's moves.
+  const scoresShown = me !== null && me.play_status !== 'playing'
   const myMoves = me
     ? (database.prepare('SELECT ply, fen_before AS fen, attempted_san AS attempted, expected_san AS expected, attempted_uci AS attemptedUci, expected_uci AS expectedUci, correct, cpl, original_cpl AS originalCpl, best_score, attempted_score, second_score, best_uci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(me.id) as Array<{ ply: number; fen: string; attempted: string; expected: string; attemptedUci: string; expectedUci: string; correct: number; cpl: number | null; originalCpl: number | null; best_score: number | null; attempted_score: number | null; second_score: number | null; best_uci: string | null }>)
-      .map(({ best_score, attempted_score, second_score, best_uci, ...move }) => ({
+      .map(({ best_score, attempted_score, second_score, best_uci, cpl, originalCpl, ...move }) => ({
         ...move,
         correct: move.correct === 1,
-        bestScore: best_score,
-        attemptedScore: attempted_score,
-        mark: moveMark({ best: best_score, attempted: attempted_score, second: second_score, playedBest: best_uci !== null && best_uci === move.attemptedUci }),
+        cpl: scoresShown ? cpl : null,
+        originalCpl: scoresShown ? originalCpl : null,
+        bestScore: scoresShown ? best_score : null,
+        attemptedScore: scoresShown ? attempted_score : null,
+        mark: scoresShown ? moveMark({ best: best_score, attempted: attempted_score, second: second_score, playedBest: best_uci !== null && best_uci === move.attemptedUci }) : null,
       }))
     : []
+  // How many of the players' moves the server has scored so far, per player.
+  const scoring = new Map((database.prepare('SELECT player_id, COUNT(*) AS total, COUNT(cpl) AS scored FROM challenge_moves WHERE challenge_id = ? GROUP BY player_id').all(challenge.id) as Array<{ player_id: string; total: number; scored: number }>)
+    .map((row) => [row.player_id, row]))
+  const scoringTotals = [...scoring.values()].reduce((sum, row) => ({ scored: sum.scored + row.scored, total: sum.total + row.total }), { scored: 0, total: 0 })
   return {
     id: challenge.id,
     // Lets clients drop a snapshot that arrives after a newer one (HTTP vs SSE races).
@@ -356,6 +387,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     side: challenge.side,
     timeControl: { baseSeconds: challenge.base_seconds, incrementSeconds: challenge.increment_seconds },
     depth: challenge.depth,
+    analysisEngine: challenge.analysis_engine,
     createdAt: challenge.created_at,
     chatMuted: challenge.chat_muted === 1,
     maxPlayers: challenge.max_players,
@@ -365,8 +397,8 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
     game: revealed && challenge.game_id
       ? { id: challenge.game_id, title: challenge.game_title, white: challenge.game_white, black: challenge.game_black, event: challenge.game_event, date: challenge.game_date, result: challenge.game_result, plyCount: challenge.ply_count }
       : challenge.ply_count === null ? null : { plyCount: challenge.ply_count },
-    // While analyzing: how long results still wait for missing analyses.
-    analysisGraceInMs: challenge.status === 'analyzing' && challenge.finished_at !== null ? Math.max(0, challenge.finished_at + analysisGraceMs - now) : null,
+    // While playing or analyzing: how many of all the players' moves are scored.
+    analysisProgress: challenge.status === 'playing' || challenge.status === 'analyzing' ? scoringTotals : null,
     players: players
       .filter((player) => challenge.status === 'lobby' ? player.invite_status !== 'expired' : isParticipant(player))
       .map((player) => ({
@@ -378,14 +410,15 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
         inviteStatus: player.invite_status,
         playStatus: player.play_status,
         movesPlayed: player.moves_played,
-        analysisReady: player.analysis_submitted_at !== null || player.moves_played === 0,
+        // All of the player's moves are scored.
+        analysisReady: (scoring.get(player.id)?.scored ?? 0) === (scoring.get(player.id)?.total ?? 0),
         clock: clockView(player, now),
         // Results stay hidden until everyone is ranked.
         result: challenge.status === 'complete'
           ? { accuracy: player.accuracy, originalAccuracy: player.original_accuracy, averageCpl: player.average_cpl, correctMoves: player.correct_moves, deviations: player.deviations, rank: player.rank, eloBefore: player.elo_before, eloAfter: player.elo_after }
           : null,
       })),
-    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves, analysisSubmitted: me.analysis_submitted_at !== null } : null,
+    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves } : null,
   }
 }
 
@@ -460,17 +493,84 @@ function finishIfAllDone(challengeId: string) {
   const players = getPlayers(challengeId).filter(isParticipant)
   if (players.some((player) => player.play_status === 'playing')) return
   database.prepare("UPDATE challenges SET status = 'analyzing', finished_at = ? WHERE id = ?").run(Date.now(), challengeId)
-  // Players who finished early have usually submitted already.
-  completeIfAnalyzed(challengeId, false)
+  // Usually most moves are scored already, often all of them.
+  completeIfAnalyzed(challengeId)
 }
 
-// Completes once every player who made a move has submitted their analysis, or
-// (with force, after the grace period) without the missing ones.
-function completeIfAnalyzed(challengeId: string, force: boolean) {
+// Completes an analyzing challenge once every move in it is scored; true if it did.
+function completeIfAnalyzed(challengeId: string) {
   const challenge = getChallenge(challengeId)
-  if (!challenge || challenge.status !== 'analyzing') return
-  const waiting = getPlayers(challengeId).filter((player) => isParticipant(player) && player.user_id && player.moves_played > 0 && !player.analysis_submitted_at)
-  if (waiting.length === 0 || force) completeChallenge(challengeId)
+  if (!challenge || challenge.status !== 'analyzing') return false
+  scoreMoves(challenge)
+  const { unscored } = database.prepare('SELECT COUNT(*) AS unscored FROM challenge_moves WHERE challenge_id = ? AND cpl IS NULL').get(challengeId) as { unscored: number }
+  if (unscored > 0) return false
+  completeChallenge(challengeId)
+  return true
+}
+
+// ---------- server analysis ----------
+
+// The searches the running challenges need, most urgent first: the oldest
+// challenge first, and within it the game's positions in order, each followed
+// by the moves played in it (the master's and the players'). Only once a
+// position's best lines are known are its moves searched, since the best move
+// needs no search of its own. While the game is played every position is
+// wanted (the players will get there); once everyone is done, only those
+// someone played in.
+function* searchesWanted(): Generator<SearchTask> {
+  const challenges = database.prepare("SELECT * FROM challenges WHERE status IN ('playing', 'analyzing') AND game_pgn IS NOT NULL AND side IS NOT NULL ORDER BY starts_at").all() as ChallengeRow[]
+  for (const challenge of challenges) {
+    const { moves } = parsedGame(challenge)
+    const attemptsByPly = new Map<number, string[]>()
+    for (const row of database.prepare('SELECT ply, attempted_uci FROM challenge_moves WHERE challenge_id = ?').all(challenge.id) as Array<{ ply: number; attempted_uci: string }>) {
+      attemptsByPly.set(row.ply, [...(attemptsByPly.get(row.ply) ?? []), row.attempted_uci])
+    }
+    for (let ply = 0; ply < moves.length; ply += 1) {
+      if (moves[ply].color !== challenge.side) continue
+      const attempts = attemptsByPly.get(ply)
+      if (challenge.status === 'analyzing' && !attempts) continue
+      const fen = moves[ply].before
+      const verdict = positionVerdict(fen, challenge.depth)
+      if (!verdict) {
+        yield { fen, depth: challenge.depth, moveUci: null }
+        continue
+      }
+      for (const moveUci of new Set([moves[ply].lan, ...(attempts ?? [])])) {
+        if (moveUci !== verdict.bestUci) yield { fen, depth: challenge.depth, moveUci }
+      }
+    }
+  }
+}
+
+// Scores the challenge's moves whose searches are all done; how many it scored.
+function scoreMoves(challenge: ChallengeRow) {
+  const rows = database.prepare('SELECT player_id, ply, fen_before, expected_uci, attempted_uci FROM challenge_moves WHERE challenge_id = ? AND cpl IS NULL').all(challenge.id) as Array<{ player_id: string; ply: number; fen_before: string; expected_uci: string; attempted_uci: string }>
+  if (rows.length === 0) return 0
+  let scored = 0
+  withTransaction(() => {
+    const update = database.prepare('UPDATE challenge_moves SET cpl = ?, original_cpl = ?, best_score = ?, attempted_score = ?, original_score = ?, second_score = ?, best_uci = ? WHERE player_id = ? AND ply = ?')
+    for (const row of rows) {
+      const verdict = positionVerdict(row.fen_before, challenge.depth)
+      if (!verdict) continue
+      const judge = (moveUci: string) => judgeMove(verdict, moveUci, moveUci === verdict.bestUci ? null : storedMoveScore(row.fen_before, challenge.depth, moveUci))
+      const original = judge(row.expected_uci)
+      const attempted = judge(row.attempted_uci)
+      if (!original || !attempted) continue
+      update.run(attempted.cpl, original.cpl, verdict.best, attempted.score, original.score, verdict.second, verdict.bestUci, row.player_id, row.ply)
+      scored += 1
+    }
+  })
+  return scored
+}
+
+// After each search: score what can be scored, show the players the progress,
+// and complete challenges whose moves are all scored.
+function scoreActiveChallenges() {
+  for (const challenge of database.prepare("SELECT * FROM challenges WHERE status IN ('playing', 'analyzing')").all() as ChallengeRow[]) {
+    const scored = scoreMoves(challenge)
+    const completed = completeIfAnalyzed(challenge.id)
+    if (scored > 0 || completed) publish(challenge.id)
+  }
 }
 
 // ---------- state changes ----------
@@ -503,8 +603,9 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
   const incrementSeconds = timeControl?.incrementSeconds
   if (typeof baseSeconds !== 'number' || !Number.isInteger(baseSeconds) || baseSeconds < 60 || baseSeconds > 180 * 60 || baseSeconds % 60 !== 0) throw new RequestError(400, 'Base time must be 1-180 whole minutes.')
   if (typeof incrementSeconds !== 'number' || !Number.isInteger(incrementSeconds) || incrementSeconds < 0 || incrementSeconds > 60) throw new RequestError(400, 'Increment must be 0-60 seconds.')
-  const depth = body.depth
-  if (typeof depth !== 'number' || !Number.isInteger(depth) || depth < minDepth || depth > maxDepth) throw new RequestError(400, `Depth must be ${minDepth}-${maxDepth}.`)
+  // The server's analysis depth, the same for every challenge (any depth sent by
+  // older pages is ignored); set again at the start.
+  const { depth } = analysisSettings()
   // Pages from before open challenges send no kind and always invite.
   const open = body.kind === 'open'
   const maxPlayers = open ? body.maxPlayers : null
@@ -621,10 +722,16 @@ function startChallenge(challenge: ChallengeRow, user: ChallengeUser) {
   const firstPly = nextPlyFor(moves, side, 0)
   if (firstPly === null) throw new RequestError(409, 'The selected game has no moves for that side. Please try again.')
   const startsAt = Date.now() + startCountdownMs
+  const analysis = analysisSettings()
+  if (!analysis.engine) {
+    throw new RequestError(503, analysis.failed
+      ? "The server's analysis engine could not be started, so the moves couldn't be scored. Ask an admin to check the Admin page."
+      : "The server's analysis engine is still starting. Try again in a few seconds.")
+  }
 
   withTransaction(() => {
-    database.prepare("UPDATE challenges SET status = 'playing', side = ?, game_id = ?, game_title = ?, game_white = ?, game_black = ?, game_event = ?, game_date = ?, game_result = ?, game_pgn = ?, ply_count = ?, starts_at = ? WHERE id = ?")
-      .run(side, game.id, game.title, game.white, game.black, game.event, game.date, game.result, game.pgn, moves.length, startsAt, challenge.id)
+    database.prepare("UPDATE challenges SET status = 'playing', side = ?, game_id = ?, game_title = ?, game_white = ?, game_black = ?, game_event = ?, game_date = ?, game_result = ?, game_pgn = ?, ply_count = ?, starts_at = ?, depth = ?, analysis_engine = ? WHERE id = ?")
+      .run(side, game.id, game.title, game.white, game.black, game.event, game.date, game.result, game.pgn, moves.length, startsAt, analysis.depth, analysis.engine, challenge.id)
     database.prepare("UPDATE challenge_players SET play_status = 'playing', remaining_ms = ?, clock_started_at = ?, next_ply = ? WHERE challenge_id = ? AND invite_status IN ('creator', 'accepted')")
       .run(challenge.base_seconds * 1000, startsAt, firstPly, challenge.id)
     database.prepare("UPDATE challenge_players SET invite_status = 'expired' WHERE challenge_id = ? AND invite_status = 'invited'").run(challenge.id)
@@ -632,6 +739,8 @@ function startChallenge(challenge: ChallengeRow, user: ChallengeUser) {
   parsedGames.set(challenge.id, { moves })
   for (const player of getPlayers(challenge.id)) if (player.play_status === 'playing') scheduleFlag(player.id)
   publish(challenge.id)
+  // The engine starts on the game's positions right away.
+  requestAnalysis()
 }
 
 function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<string, unknown>) {
@@ -677,75 +786,11 @@ function playMove(challenge: ChallengeRow, user: ChallengeUser, body: Record<str
     for (const badgeId of streakBadgesFor(streak)) awardBadge(user.id, badgeId)
   }
   scheduleFlag(player.id)
+  // A move off the master's line needs a search of its own.
+  if (!correct) requestAnalysis()
   finishIfAllDone(challenge.id)
   publish(challenge.id)
   return { correct, attemptedSan: attempted.san, expectedSan: expected.san, expectedUci: expected.lan }
-}
-
-// Each player's browser analyzes their own moves (in the background while they
-// play) and submits one centipawn loss per move for their move and for the
-// master's move. Players are trusted; the server only checks the shape.
-function submitOwnAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<string, unknown>) {
-  if (!isParticipant(player) || !player.play_status || player.play_status === 'playing') throw new RequestError(409, 'Finish playing before submitting your analysis.')
-  if (challenge.status !== 'playing' && challenge.status !== 'analyzing') return
-  storeAnalysis(challenge, player, body)
-}
-
-// Another player may analyze for someone who finished the game on time but whose
-// own analysis hasn't arrived (they left, or their page is out of date). Only
-// once everyone is done, so nobody sees another player's moves during the game;
-// the first complete analysis wins.
-function helperTarget(challenge: ChallengeRow, helper: PlayerRow | undefined, targetId: string) {
-  if (!helper || !isParticipant(helper)) throw new RequestError(403, 'Only players in this challenge can help with its analysis.')
-  if (challenge.status !== 'analyzing') throw new RequestError(409, 'This challenge is not waiting for analysis.')
-  const target = getPlayer(targetId)
-  if (!target || target.challenge_id !== challenge.id || !isParticipant(target)) throw new RequestError(404, 'Player not found.')
-  if (target.play_status !== 'finished') throw new RequestError(409, 'Only players who finished the game on time are analyzed by others.')
-  return target
-}
-
-function helperMoves(challenge: ChallengeRow, target: PlayerRow) {
-  const moves = database.prepare('SELECT ply, fen_before AS fen, expected_uci AS expectedUci, attempted_uci AS attemptedUci FROM challenge_moves WHERE player_id = ? ORDER BY ply').all(target.id)
-  return { depth: challenge.depth, analysisReady: target.analysis_submitted_at !== null, moves }
-}
-
-function storeAnalysis(challenge: ChallengeRow, player: PlayerRow, body: Record<string, unknown>) {
-  if (player.analysis_submitted_at) return
-  const results = Array.isArray(body.results) ? body.results as Array<Record<string, unknown>> : []
-  const plies = (database.prepare('SELECT ply FROM challenge_moves WHERE player_id = ?').all(player.id) as Array<{ ply: number }>).map((row) => row.ply)
-  type Review = { cpl: number; originalCpl: number; best: number | null; attempted: number | null; original: number | null; second: number | null; bestUci: string | null }
-  const byPly = new Map<number, Review>()
-  const validCpl = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 200_000
-  // Scores are optional, so pages from before the engine badges still work.
-  const optionalScore = (value: unknown) => {
-    if (value === undefined || value === null) return null
-    if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > 100_000) throw new RequestError(400, 'Malformed analysis result.')
-    return value
-  }
-  for (const result of results) {
-    if (typeof result?.ply !== 'number' || !validCpl(result.cpl) || !validCpl(result.originalCpl)) throw new RequestError(400, 'Malformed analysis result.')
-    const bestUci = typeof result.bestUci === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(result.bestUci) ? result.bestUci : null
-    byPly.set(result.ply, {
-      cpl: result.cpl,
-      originalCpl: result.originalCpl,
-      best: optionalScore(result.best),
-      attempted: optionalScore(result.attempted),
-      original: optionalScore(result.original),
-      second: optionalScore(result.second),
-      bestUci,
-    })
-  }
-  const missing = plies.filter((ply) => !byPly.has(ply)).length
-  if (missing > 0) throw new RequestError(400, `The analysis is missing ${missing} of ${plies.length} moves.`)
-  withTransaction(() => {
-    const update = database.prepare('UPDATE challenge_moves SET cpl = ?, original_cpl = ?, best_score = ?, attempted_score = ?, original_score = ?, second_score = ?, best_uci = ? WHERE player_id = ? AND ply = ?')
-    for (const ply of plies) {
-      const review = byPly.get(ply)!
-      update.run(review.cpl, review.originalCpl, review.best, review.attempted, review.original, review.second, review.bestUci, player.id, ply)
-    }
-    database.prepare('UPDATE challenge_players SET analysis_submitted_at = ? WHERE id = ?').run(new Date().toISOString(), player.id)
-  })
-  completeIfAnalyzed(challenge.id, false)
 }
 
 function average(values: number[]) {
@@ -756,13 +801,11 @@ function completeChallenge(challengeId: string) {
   const challenge = getChallenge(challengeId)!
   const players = getPlayers(challengeId).filter(isParticipant)
   const moves = database.prepare('SELECT player_id, ply, correct, cpl, original_cpl, best_score, attempted_score, original_score, second_score, best_uci, attempted_uci FROM challenge_moves WHERE challenge_id = ? ORDER BY ply').all(challengeId) as MoveRow[]
-  // A player who made moves but whose analysis never arrived has no accuracy.
-  const forfeited = (player: PlayerRow) => player.moves_played > 0 && !player.analysis_submitted_at
+  // Every move is scored by now (see completeIfAnalyzed).
   const stats = new Map(players.map((player) => {
     const playerMoves = moves.filter((move) => move.player_id === player.id)
-    const analyzed = forfeited(player) ? [] : playerMoves
-    const attemptedCpls = analyzed.map((move) => move.cpl ?? 0)
-    const originalCpls = analyzed.map((move) => move.original_cpl ?? 0)
+    const attemptedCpls = playerMoves.map((move) => move.cpl ?? 0)
+    const originalCpls = playerMoves.map((move) => move.original_cpl ?? 0)
     const accuracy = average(attemptedCpls.map(accuracyFromCpl))
     const originalAccuracy = average(originalCpls.map(accuracyFromCpl))
     const averageCpl = average(attemptedCpls)
@@ -783,7 +826,6 @@ function completeChallenge(challengeId: string) {
     rating: player.current_elo!,
     finished: player.play_status === 'finished',
     accuracy: stats.get(player.id)!.accuracy,
-    forfeited: forfeited(player),
   }))).map((change) => [change.id, change]))
   const completedAt = new Date().toISOString()
 
@@ -815,7 +857,6 @@ function completeChallenge(challengeId: string) {
     awardBadge(player.user_id, 'first-game')
     if (player.play_status !== 'resigned') awardBadge(player.user_id, 'first-challenge')
     // Engine badges come from the player's own reviewed moves.
-    if (forfeited(player)) continue
     const reviewed = moves.filter((move) => move.player_id === player.id).map((move) => ({
       correct: move.correct === 1,
       cpl: move.cpl ?? 0,
@@ -870,9 +911,13 @@ function sweep() {
       for (const player of getPlayers(challenge.id)) {
         if (player.play_status === 'playing' && (clockView(player, now).remainingMs ?? 0) <= 0) flagIfOverdue(player.id)
       }
-    } else if (challenge.finished_at !== null && now - challenge.finished_at > analysisGraceMs) {
-      // Missing analyses are ranked last rather than holding everyone's results.
-      completeIfAnalyzed(challenge.id, true)
+    } else if (completeIfAnalyzed(challenge.id)) {
+      // Normally completed right after the last search; this also catches
+      // challenges that were waiting when the server restarted.
+      publish(challenge.id)
+    } else if (challenge.finished_at !== null && now - challenge.finished_at > analysisTimeoutMs) {
+      console.error(`Challenge ${challenge.id}: voided, its moves were still not all scored after ${analysisTimeoutMs / 3_600_000} hours.`)
+      setStatus(challenge.id, 'void')
       publish(challenge.id)
     }
   }
@@ -913,8 +958,8 @@ function history(userId: string) {
   `).all(userId)
 }
 
-// Every other player's centipawn loss at each ply they played (null where
-// their analysis never arrived).
+// Every other player's centipawn loss at each ply they played (null where it
+// was never scored, in challenges from before server scoring).
 function otherPlayersProgress(challenge: ChallengeRow, me: PlayerRow) {
   const rows = database.prepare(`
     SELECT challenge_players.id AS playerId, challenge_players.username, challenge_moves.ply, challenge_moves.cpl
@@ -970,22 +1015,6 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       if (!allowRequest(`challenge:create:${user.id}`, 20, 60 * 60 * 1000)) throw new RequestError(429, 'Too many challenges created. Please try again later.')
       const challengeId = createChallenge(user, await readJson(request))
       sendJson(response, 200, snapshot(getChallenge(challengeId)!, user.id))
-      return true
-    }
-
-    const helperMatch = url.match(/^\/api\/challenges\/([0-9a-f-]{36})\/players\/([0-9a-f-]{36})\/(moves|analysis)$/)
-    if (helperMatch) {
-      const challenge = getChallenge(helperMatch[1])
-      if (!challenge) throw new RequestError(404, 'Challenge not found.')
-      const target = helperTarget(challenge, playerFor(challenge.id, user.id), helperMatch[2])
-      if (request.method === 'GET' && helperMatch[3] === 'moves') {
-        sendJson(response, 200, helperMoves(challenge, target))
-        return true
-      }
-      if (request.method !== 'POST' || helperMatch[3] !== 'analysis') throw new RequestError(405, 'Method not allowed.')
-      storeAnalysis(challenge, target, await readJson(request, maxAnalysisBytes))
-      publish(challenge.id)
-      sendJson(response, 200, snapshot(getChallenge(challenge.id)!, user.id))
       return true
     }
 
@@ -1050,8 +1079,8 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       database.prepare('UPDATE challenges SET chat_muted = ? WHERE id = ?').run(body.muted === true ? 1 : 0, challenge.id)
       publish(challenge.id)
     } else if (action === 'analysis') {
-      submitOwnAnalysis(challenge, playerFor(challenge.id, user.id)!, await readJson(request, maxAnalysisBytes))
-      publish(challenge.id)
+      // Pages from before server scoring still send their browser's analysis
+      // once a player finishes; it is ignored, and they get the usual snapshot.
     } else {
       throw new RequestError(404, 'Not found.')
     }

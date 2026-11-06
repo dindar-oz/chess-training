@@ -224,9 +224,9 @@ export function storedMoveScore(fen: string, depth: number, moveUci: string) {
 }
 
 // The default depth for new analyses, and the engine that runs them (null
-// until it has started, or if none could be).
+// while it is starting, which takes a few seconds, or if none could start).
 export function analysisSettings() {
-  return { depth: defaultDepth, engine: engineName }
+  return { depth: defaultDepth, engine: workers.length > 0 ? engineName : null, failed: workers.length === 0 && engineProblem !== null }
 }
 
 // ---------- scheduling ----------

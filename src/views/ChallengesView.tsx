@@ -24,7 +24,7 @@ type ChallengesViewProps = {
 
 export function ChallengesView({ user, onNavigate, onLogout, onTrainGame, onAnalyze }: ChallengesViewProps) {
   const analyzeChallenge = (challengeId: string) => onAnalyze({ kind: 'challenge', challengeId })
-  const { current, analysisRun, retryAnalysis, dismiss } = useChallenges()
+  const { current, dismiss } = useChallenges()
   const [viewing, setViewing] = useState<ChallengeSnapshot | null>(null)
   const [viewError, setViewError] = useState('')
   const [creating, setCreating] = useState<NewChallengeKind | null>(null)
@@ -51,9 +51,9 @@ export function ChallengesView({ user, onNavigate, onLogout, onTrainGame, onAnal
     </>
   }
   else if (snapshot && (snapshot.status === 'analyzing' || snapshot.status === 'complete' || snapshot.status === 'void')) {
-    body = <ChallengeResults challenge={snapshot} userId={user.id} analysisRun={analysisRun?.challengeId === snapshot.id ? analysisRun : null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={dismiss} closeLabel="New challenge" showChat receivedAt={current?.receivedAt} />
+    body = <ChallengeResults challenge={snapshot} userId={user.id} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={dismiss} closeLabel="New challenge" showChat />
   } else if (viewing) {
-    body = <ChallengeResults challenge={viewing} userId={user.id} analysisRun={null} onRetryAnalysis={retryAnalysis} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={() => setViewing(null)} closeLabel="← Back to challenges" showChat={false} />
+    body = <ChallengeResults challenge={viewing} userId={user.id} onTrainGame={onTrainGame} onAnalyze={analyzeChallenge} onClose={() => setViewing(null)} closeLabel="← Back to challenges" showChat={false} />
   } else {
     body = <>
       <section className="challenge-lobby">

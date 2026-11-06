@@ -1,12 +1,8 @@
-import { useRealtime } from '../realtime/context'
-import { useChallenges } from './context'
-import { formatClock, formatTimeControl } from '../timeControl'
+import { formatTimeControl } from '../timeControl'
 import { ChallengeChat } from './ChallengeChat'
 import { ReviewPreview } from '../review/ReviewPreview'
 import { PlayerName } from '../titles/PlayerName'
-import type { AnalysisRun } from './context'
 import type { ChallengeSnapshot, PlayStatus } from './types'
-import { useNow } from './useNow'
 
 const playStatusLabels: Record<PlayStatus, string> = {
   playing: 'Playing',
@@ -18,56 +14,37 @@ const playStatusLabels: Record<PlayStatus, string> = {
 type ChallengeResultsProps = {
   challenge: ChallengeSnapshot
   userId: string
-  analysisRun: AnalysisRun | null
-  onRetryAnalysis: () => void
   onTrainGame: (gameId: string) => void
   onAnalyze: (challengeId: string) => void
   onClose: () => void
   closeLabel: string
-  // When the snapshot arrived (performance.now()), so the grace countdown can tick.
-  receivedAt?: number
   // Only the current challenge has a live chat; past ones are shown without it.
   showChat: boolean
 }
 
-export function ChallengeResults({ challenge, userId, analysisRun, onRetryAnalysis, onTrainGame, onAnalyze, onClose, closeLabel, showChat, receivedAt }: ChallengeResultsProps) {
-  const { onlineUsers } = useRealtime()
-  const { helperRuns } = useChallenges()
-  const onlineIds = new Set(onlineUsers.map((onlineUser) => onlineUser.id))
-  const now = useNow(challenge.status === 'analyzing', 1000)
-  const graceLeftMs = challenge.analysisGraceInMs === null ? null : Math.max(0, challenge.analysisGraceInMs - (receivedAt === undefined ? 0 : Math.max(0, now - receivedAt)))
+export function ChallengeResults({ challenge, userId, onTrainGame, onAnalyze, onClose, closeLabel, showChat }: ChallengeResultsProps) {
   const ranked = [...challenge.players].sort((a, b) => (a.result?.rank ?? 99) - (b.result?.rank ?? 99))
   const game = challenge.game
+  const progress = challenge.analysisProgress
+  const percent = progress && progress.total > 0 ? Math.round((progress.scored / progress.total) * 100) : 0
 
   return <section className="history-section challenge-results">
     {challenge.status === 'analyzing' && <>
       <div className="section-heading"><div><p className="section-label">ENGINE REVIEW</p><h2>Everyone is done. Scoring the moves.</h2></div></div>
-      {analysisRun && <div className="analysis-progress" aria-live="polite">
-        <div className="analysis-progress-label"><strong>Your browser is analyzing your moves at depth {challenge.depth}</strong><span>{analysisRun.total > 0 ? `${Math.round((analysisRun.done / analysisRun.total) * 100)}%` : ''}</span></div>
-        <div className="analysis-progress-track"><span style={{ width: `${analysisRun.total > 0 ? (analysisRun.done / analysisRun.total) * 100 : 0}%` }} /></div>
-        <div className="analysis-progress-meta"><span>{analysisRun.done} of {analysisRun.total} moves</span><span>Keep this page open until it's sent</span></div>
+      {progress && <div className="analysis-progress" aria-live="polite">
+        <div className="analysis-progress-label"><strong>The server is scoring every move at depth {challenge.depth}</strong><span>{percent}%</span></div>
+        <div className="analysis-progress-track"><span style={{ width: `${percent}%` }} /></div>
+        <div className="analysis-progress-meta"><span>{progress.scored} of {progress.total} moves</span>{challenge.analysisEngine && <span>{challenge.analysisEngine}</span>}</div>
       </div>}
-      {analysisRun?.error && <div className="admin-error">Your analysis stopped: {analysisRun.error} <button className="text-button" onClick={onRetryAnalysis}>Retry</button></div>}
-      <div className="analysis-players">{challenge.players.map((player) => {
-        // Only a connected player's browser can still send their analysis.
-        const online = player.userId !== null && (player.userId === userId || onlineIds.has(player.userId))
-        const helping = helperRuns[player.playerId]
-        const state = player.analysisReady ? 'ready' : helping ? 'helping' : online ? 'analyzing' : 'offline'
-        const label = state === 'ready' ? 'Analysis in ✓'
-          : helping ? `${online ? 'Not responding' : 'Offline'} · you're analyzing it (${helping.done}/${helping.total})`
-          : state === 'analyzing' ? 'Analyzing...'
-          : player.playStatus === 'finished' ? 'Offline · waiting for another player to analyze it'
-          : `Offline${graceLeftMs === null ? '' : ` · ranked last in ${formatClock(graceLeftMs)}`}`
-        return <div key={player.playerId} className={state}>
-          <strong>{player.userId === userId ? 'You' : <PlayerName userId={player.userId} name={player.username} />}</strong>
-          <span>{label}</span>
-        </div>
-      })}</div>
-      <p className="results-note">Each player's browser analyzes their own moves and sends them automatically. Results appear as soon as everyone's analysis is in{graceLeftMs !== null && `; anyone still missing in ${formatClock(graceLeftMs)} is ranked last. If a player who finished on time has left, the other players' browsers analyze their moves for them`}.</p>
+      <div className="analysis-players">{challenge.players.map((player) => <div key={player.playerId} className={player.analysisReady ? 'ready' : 'analyzing'}>
+        <strong>{player.userId === userId ? 'You' : <PlayerName userId={player.userId} name={player.username} />}</strong>
+        <span>{player.analysisReady ? 'Scored ✓' : 'Scoring...'}</span>
+      </div>)}</div>
+      <p className="results-note">The server's engine scores everyone's moves the same way: the same move in the same position always costs the same, and the engine's own best move always counts as 100%. Results appear as soon as the last move is scored; you don't need to keep this page open.</p>
     </>}
 
     {challenge.status === 'void' && <>
-      <div className="section-heading"><div><p className="section-label">CHALLENGE VOIDED</p><h2>The analysis never arrived.</h2></div></div>
+      <div className="section-heading"><div><p className="section-label">CHALLENGE VOIDED</p><h2>The moves could not be scored.</h2></div></div>
       <p className="empty-log">This challenge was voided, so nobody's rating changed.</p>
     </>}
 

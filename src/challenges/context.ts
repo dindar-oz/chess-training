@@ -1,15 +1,9 @@
 import { createContext, useContext } from 'react'
 import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
-export type AnalysisRun = { challengeId: string; done: number; total: number; error: string | null }
-
 export type ChallengeState = {
   current: ReceivedSnapshot | null
   invitations: ChallengeSnapshot[]
-  // Progress of this browser's analysis of your own moves once you've finished.
-  analysisRun: AnalysisRun | null
-  // This browser analyzing for other players whose analysis is missing, by player id.
-  helperRuns: Record<string, { done: number; total: number }>
   notice: string | null
   // Chat of the current challenge, oldest first. Kept only in memory: messages
   // are relayed live and never stored, so a reload starts with an empty chat.
@@ -32,7 +26,6 @@ export type ChallengeState = {
   leave: () => Promise<void>
   resign: () => Promise<void>
   move: (ply: number, uci: string) => Promise<{ correct: boolean; expectedSan: string }>
-  retryAnalysis: () => void
   // Clears a finished challenge so the Challenges tab offers a new one.
   dismiss: () => void
 }
