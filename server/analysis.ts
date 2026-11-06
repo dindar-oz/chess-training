@@ -28,11 +28,11 @@ import type { StartEngine } from '../shared/engineChannel.ts'
 // of one move in it.
 export type SearchTask = { fen: string; depth: number; moveUci: string | null }
 
-const defaultDepth = readInt('ANALYSIS_DEPTH', 24, 12, 30)
+const defaultDepth = readInt('ANALYSIS_DEPTH', 22, 12, 30)
 const workerCount = readInt('ANALYSIS_WORKERS', Math.max(1, availableParallelism() - 1), 1, 32)
 const hashMb = 64
 // Generous: a timeout only guards against a stuck engine, and a slow CPU can
-// take minutes over a hard position at depth 24.
+// take minutes over a hard position at depth 22.
 const channelOptions = {
   searchTimeoutMs: 20 * 60_000,
   stopGraceMs: 10_000,
