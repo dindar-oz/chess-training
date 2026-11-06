@@ -132,7 +132,7 @@ The **Awards** tab shows every badge, earned or still locked. Each badge pays XP
 | **Flawless** | Finish a challenge without a mistake (?) or a blunder. | 150 |
 | **Sharp Eye** | Find 3 only moves (!) in one challenge. | 100 |
 
-The last six are engine badges: they count only in challenges scored at depth 21 or more (the server's default depth is 24), and "finish" means playing every move on time. They are judged as on lichess, by winning chances from -1 (lost) to 1 (won): a move that loses 0.2 of them is a mistake and 0.3 a blunder, so dropping from +9 to +6 in a won position is neither. An only move is the engine's best move when the second-best move loses at least 0.2, and a move beats the master's when it keeps at least 0.05 more (so engine noise between equal moves doesn't count). For only moves the server searches the two best moves of every position. The rules live in `shared/badges.ts` with tests.
+The last six are engine badges: they count only in challenges scored at depth 21 or more (the server's default depth is 22), and "finish" means playing every move on time. They are judged as on lichess, by winning chances from -1 (lost) to 1 (won): a move that loses 0.2 of them is a mistake and 0.3 a blunder, so dropping from +9 to +6 in a won position is neither. An only move is the engine's best move when the second-best move loses at least 0.2, and a move beats the master's when it keeps at least 0.05 more (so engine noise between equal moves doesn't count). For only moves the server searches the two best moves of every position. The rules live in `shared/badges.ts` with tests.
 
 The server awards badges and remembers them per account. A new badge is celebrated once, with an animation and a fanfare: as a small corner card that doesn't block the board while your challenge clock is running, and as a full-screen moment otherwise. A badge earned while no page was open is celebrated at your next visit. Badges for play from before badges existed are granted automatically when the server starts, and XP for badges earned before badges paid XP is paid once at startup. Engine badges aren't granted for old challenges, which didn't store the scores they need.
 
@@ -161,8 +161,8 @@ Settings, as environment variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ANALYSIS_DEPTH` | 24 | Search depth for new challenges (12-30). Each search at depth 24 takes roughly 10-20 seconds on one core. |
+| `ANALYSIS_DEPTH` | 22 | Search depth for new challenges (12-30). Each search at depth 22 takes roughly 5-10 seconds on one core. |
 | `ANALYSIS_WORKERS` | CPU cores - 1 (at least 1) | Engines searching in parallel. Each runs in its own process at a lower priority than the web server. |
 | `STOCKFISH_PATH` | set in the Docker image | A native Stockfish binary. Without it (as in local development) the server uses the slower WASM build from the `stockfish` npm package. |
 
-The Docker image includes the official Stockfish 19 Linux build (GPLv3; its license is in `/usr/local/share/doc/stockfish`), which picks the fastest code the CPU supports. Admins see the engine, depth, workers, CPU cores, waiting searches and average search time in the **Admin** tab, and on Azure App Service also the plan's tier. Azure's Free and Shared tiers limit CPU time per day, which depth-24 analysis can exhaust.
+The Docker image includes the official Stockfish 19 Linux build (GPLv3; its license is in `/usr/local/share/doc/stockfish`), which picks the fastest code the CPU supports. Admins see the engine, depth, workers, CPU cores, waiting searches and average search time in the **Admin** tab, and on Azure App Service also the plan's tier. Azure's Free and Shared tiers limit CPU time per day, which depth-22 analysis can exhaust.
