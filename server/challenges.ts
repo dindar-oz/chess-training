@@ -93,6 +93,12 @@ type PlayerRow = {
   elo_before: number | null
   elo_after: number | null
   analysis_submitted_at: string | null
+  // The player finished and left the challenge before its results: it is no
+  // longer their current challenge, and they are told when results are ready.
+  stepped_away_at: string | null
+  // When the player saw the final results (or dismissed the notice); null
+  // until then, so a player who was away is told at their next visit.
+  results_seen_at: string | null
   current_elo: number | null
 }
 
@@ -232,6 +238,18 @@ export function initChallenges(dependencies: { database: DatabaseSync; awardXp: 
   } catch {
     // Existing databases may already have the column.
   }
+  try {
+    database.exec('ALTER TABLE challenge_players ADD COLUMN stepped_away_at TEXT')
+  } catch {
+    // Existing databases may already have the column.
+  }
+  try {
+    database.exec('ALTER TABLE challenge_players ADD COLUMN results_seen_at TEXT')
+    // Results from before the notices existed count as seen.
+    database.prepare("UPDATE challenge_players SET results_seen_at = ? WHERE challenge_id IN (SELECT id FROM challenges WHERE status IN ('complete', 'void'))").run(new Date().toISOString())
+  } catch {
+    // Existing databases may already have the column.
+  }
   setTaskSource(searchesWanted)
   onSearchFinished(scoreActiveChallenges)
   setInterval(sweep, sweepIntervalMs).unref()
@@ -263,23 +281,25 @@ function isParticipant(player: PlayerRow) {
   return player.invite_status === 'creator' || player.invite_status === 'accepted'
 }
 
-// The challenge a user is taking part in right now (lobby, playing, or awaiting analysis).
+// The challenge a user is taking part in right now (lobby, playing, or awaiting
+// analysis), unless they finished and left it before the results.
 function currentChallengeId(userId: string) {
   const row = database.prepare(`
     SELECT challenges.id FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status IN ('lobby', 'playing', 'analyzing')
+      AND challenge_players.stepped_away_at IS NULL
     ORDER BY challenges.created_at DESC LIMIT 1
   `).get(userId) as { id: string } | undefined
   return row?.id ?? null
 }
 
-// Busy users can't create or join another challenge. A finished player waiting on
-// the server's analysis is free again.
+// Busy users can't create or join another challenge. A player who has finished
+// is free again, even while the others still play or the moves are scored.
 function isBusy(userId: string) {
   const row = database.prepare(`
     SELECT 1 FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
-      AND challenges.status IN ('lobby', 'playing')
+      AND (challenges.status = 'lobby' OR (challenges.status = 'playing' AND challenge_players.play_status = 'playing'))
     LIMIT 1
   `).get(userId)
   return row !== undefined
@@ -287,15 +307,66 @@ function isBusy(userId: string) {
 
 // A player is in one challenge at a time, but someone still in a waiting room may
 // move on: joining or accepting another challenge takes them out of the old one.
-// Only a game in progress holds them.
+// Only their own game in progress holds them.
 function isLockedIn(userId: string) {
   const row = database.prepare(`
     SELECT 1 FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
     WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
-      AND challenges.status = 'playing'
+      AND challenges.status = 'playing' AND challenge_players.play_status = 'playing'
     LIMIT 1
   `).get(userId)
   return row !== undefined
+}
+
+// Leaves a challenge the player has finished, before its results: it stops
+// being their current challenge, and they are told when the results are ready.
+function stepAway(player: PlayerRow) {
+  if (player.stepped_away_at) return
+  database.prepare('UPDATE challenge_players SET stepped_away_at = ? WHERE id = ?').run(new Date().toISOString(), player.id)
+}
+
+// Moving on to another challenge leaves any finished one still awaiting results.
+function stepAwayFromFinished(userId: string) {
+  const rows = database.prepare(`
+    SELECT challenge_players.id FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
+    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status IN ('playing', 'analyzing')
+      AND challenge_players.play_status IS NOT NULL AND challenge_players.play_status != 'playing' AND challenge_players.stepped_away_at IS NULL
+  `).all(userId) as Array<{ id: string }>
+  for (const row of rows) stepAway(getPlayer(row.id)!)
+}
+
+// What a player is told about a challenge's final results.
+function resultSummary(challenge: ChallengeRow, player: PlayerRow) {
+  return {
+    challengeId: challenge.id,
+    status: challenge.status,
+    gameTitle: challenge.status === 'complete' ? challenge.game_title : null,
+    players: seatedCount(challenge.id),
+    rank: player.rank,
+    accuracy: player.accuracy,
+    eloBefore: player.elo_before,
+    eloAfter: player.elo_after,
+  }
+}
+
+// Results the user hasn't seen yet, newest first.
+function unseenResults(userId: string) {
+  const rows = database.prepare(`
+    SELECT challenge_players.id AS playerId, challenges.id AS challengeId FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
+    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status IN ('complete', 'void')
+      AND challenge_players.results_seen_at IS NULL
+    ORDER BY challenges.created_at DESC LIMIT 5
+  `).all(userId) as Array<{ playerId: string; challengeId: string }>
+  return rows.map((row) => resultSummary(getChallenge(row.challengeId)!, getPlayer(row.playerId)!))
+}
+
+// Tells every player that the results are ready (or that the challenge was voided).
+function announceResults(challengeId: string) {
+  const challenge = getChallenge(challengeId)
+  if (!challenge) return
+  for (const player of getPlayers(challengeId)) {
+    if (player.user_id && isParticipant(player)) sendToUser(player.user_id, 'challenge_results', resultSummary(challenge, player))
+  }
 }
 
 // A host who moves on cancels their challenge; anyone else just leaves it.
@@ -418,7 +489,7 @@ function snapshot(challenge: ChallengeRow, forUserId: string) {
           ? { accuracy: player.accuracy, originalAccuracy: player.original_accuracy, averageCpl: player.average_cpl, correctMoves: player.correct_moves, deviations: player.deviations, rank: player.rank, eloBefore: player.elo_before, eloAfter: player.elo_after }
           : null,
       })),
-    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves } : null,
+    me: me ? { playerId: me.id, inviteStatus: me.invite_status, playStatus: me.play_status, clock: clockView(me, now), position, moves: myMoves, steppedAway: me.stepped_away_at !== null } : null,
   }
 }
 
@@ -630,6 +701,7 @@ function createChallenge(user: ChallengeUser, body: Record<string, unknown>) {
   const unavailable = invitees.filter((invitee) => !isOnline(invitee!.id) || isLockedIn(invitee!.id)).map((invitee) => invitee!.username)
   if (unavailable.length > 0) throw new RequestError(409, `Not available right now: ${unavailable.join(', ')}.`)
 
+  stepAwayFromFinished(user.id)
   const challengeId = randomUUID()
   withTransaction(() => {
     database.prepare("INSERT INTO challenges (id, creator_id, creator_name, side_choice, base_seconds, increment_seconds, depth, status, created_at, max_players, game_filter) VALUES (?, ?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?)")
@@ -646,7 +718,10 @@ function respond(challenge: ChallengeRow, user: ChallengeUser, accept: boolean) 
   const player = playerFor(challenge.id, user.id)
   if (challenge.status !== 'lobby' || player?.invite_status !== 'invited') throw new RequestError(409, 'This invitation is no longer open.')
   if (accept && isLockedIn(user.id)) throw new RequestError(409, 'Finish your current challenge first.')
-  if (accept) leaveWaitingRooms(user.id)
+  if (accept) {
+    leaveWaitingRooms(user.id)
+    stepAwayFromFinished(user.id)
+  }
   database.prepare('UPDATE challenge_players SET invite_status = ? WHERE id = ?').run(accept ? 'accepted' : 'declined', player.id)
   publish(challenge.id)
 }
@@ -660,6 +735,7 @@ function join(challenge: ChallengeRow, user: ChallengeUser) {
   if (isLockedIn(user.id)) throw new RequestError(409, 'Finish your current challenge first.')
   if (seatedCount(challenge.id) >= challenge.max_players) throw new RequestError(409, 'This challenge is full.')
   leaveWaitingRooms(user.id)
+  stepAwayFromFinished(user.id)
   // Someone who left earlier keeps their row and takes a seat again.
   if (player) database.prepare("UPDATE challenge_players SET invite_status = 'accepted' WHERE id = ?").run(player.id)
   else database.prepare("INSERT INTO challenge_players (id, challenge_id, user_id, username, invite_status) VALUES (?, ?, ?, ?, 'accepted')").run(randomUUID(), challenge.id, user.id, user.username)
@@ -879,6 +955,7 @@ function completeChallenge(challengeId: string) {
     const userId = players.find((player) => player.id === playerId)?.user_id
     if (userId) updateOnlineUser(userId, { elo: change.after })
   }
+  announceResults(challengeId)
 }
 
 // Called before a user is disabled or deleted, so their challenges don't hang.
@@ -925,6 +1002,7 @@ function sweep() {
       console.error(`Challenge ${challenge.id}: voided, its moves were still not all scored after ${analysisTimeoutMs / 3_600_000} hours.`)
       setStatus(challenge.id, 'void')
       publish(challenge.id)
+      announceResults(challenge.id)
     }
   }
 }
@@ -952,14 +1030,18 @@ function relayChatMessage(challenge: ChallengeRow, player: PlayerRow, user: Chal
 
 // ---------- routes ----------
 
+// Your past challenges, including those you finished and left whose results
+// are still pending (status 'pending'; their game stays secret until then).
 function history(userId: string) {
   return database.prepare(`
-    SELECT challenges.id, challenges.status, challenges.game_title AS gameTitle, challenges.completed_at AS completedAt, challenges.created_at AS createdAt,
+    SELECT challenges.id, CASE WHEN challenges.status IN ('complete', 'void') THEN challenges.status ELSE 'pending' END AS status,
+      CASE WHEN challenges.status = 'complete' THEN challenges.game_title END AS gameTitle, challenges.completed_at AS completedAt, challenges.created_at AS createdAt,
       challenges.base_seconds AS baseSeconds, challenges.increment_seconds AS incrementSeconds,
       challenge_players.rank, challenge_players.elo_before AS eloBefore, challenge_players.elo_after AS eloAfter, challenge_players.accuracy, challenge_players.moves_played AS movesPlayed,
       (SELECT COUNT(*) FROM challenge_players others WHERE others.challenge_id = challenges.id AND others.invite_status IN ('creator', 'accepted')) AS players
     FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id
-    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted') AND challenges.status IN ('complete', 'void')
+    WHERE challenge_players.user_id = ? AND challenge_players.invite_status IN ('creator', 'accepted')
+      AND (challenges.status IN ('complete', 'void') OR (challenges.status IN ('playing', 'analyzing') AND challenge_players.stepped_away_at IS NOT NULL))
     ORDER BY challenges.created_at DESC LIMIT 20
   `).all(userId)
 }
@@ -995,7 +1077,7 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       const currentId = currentChallengeId(user.id)
       const current = currentId ? getChallenge(currentId) : undefined
       const invitations = database.prepare("SELECT challenges.* FROM challenges JOIN challenge_players ON challenge_players.challenge_id = challenges.id WHERE challenge_players.user_id = ? AND challenge_players.invite_status = 'invited' AND challenges.status = 'lobby' ORDER BY challenges.created_at").all(user.id) as ChallengeRow[]
-      sendJson(response, 200, { current: current ? snapshot(current, user.id) : null, invitations: invitations.map((challenge) => snapshot(challenge, user.id)) })
+      sendJson(response, 200, { current: current ? snapshot(current, user.id) : null, invitations: invitations.map((challenge) => snapshot(challenge, user.id)), results: unseenResults(user.id) })
       return true
     }
     if (request.method === 'GET' && url === '/api/challenges/history') {
@@ -1084,6 +1166,16 @@ export async function handleChallengeRequest(request: IncomingMessage, response:
       const body = await readJson(request)
       database.prepare('UPDATE challenges SET chat_muted = ? WHERE id = ?').run(body.muted === true ? 1 : 0, challenge.id)
       publish(challenge.id)
+    } else if (action === 'step-away') {
+      const player = playerFor(challenge.id, user.id)!
+      if (!isParticipant(player) || !player.play_status || player.play_status === 'playing' || (challenge.status !== 'playing' && challenge.status !== 'analyzing')) {
+        throw new RequestError(409, 'You can leave once you have finished, before the results are in.')
+      }
+      stepAway(player)
+    } else if (action === 'seen') {
+      if (challenge.status === 'complete' || challenge.status === 'void') {
+        database.prepare('UPDATE challenge_players SET results_seen_at = ? WHERE id = ? AND results_seen_at IS NULL').run(new Date().toISOString(), playerFor(challenge.id, user.id)!.id)
+      }
     } else if (action === 'analysis') {
       // Pages from before server scoring still send their browser's analysis
       // once a player finishes; it is ignored, and they get the usual snapshot.

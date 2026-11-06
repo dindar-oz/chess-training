@@ -6,7 +6,7 @@ import { readApiResponse } from '../types'
 import { ChallengeContext } from './context'
 import type { ChallengeState } from './context'
 import { isParticipant } from './types'
-import type { ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
+import type { ChallengeResultNotice, ChallengeSnapshot, ChatMessage, CreateChallengeInput, ReceivedSnapshot } from './types'
 
 const activeStatuses = ['lobby', 'playing', 'analyzing']
 
@@ -29,6 +29,10 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
   const [current, setCurrent] = useState<ReceivedSnapshot | null>(null)
   const [invitations, setInvitations] = useState<ChallengeSnapshot[]>([])
   const [notice, setNotice] = useState<string | null>(null)
+  const [results, setResults] = useState<ChallengeResultNotice[]>([])
+  const [requestedResults, setRequestedResults] = useState<string | null>(null)
+  // Results seen in this page, so a notice arriving late doesn't come back.
+  const seenResults = useRef(new Set<string>())
   const [chat, setChat] = useState<ChatMessage[]>([])
   const [mutedChats, setMutedChats] = useState<string[]>([])
   const mutedChatsRef = useRef<string[]>([])
@@ -53,7 +57,11 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
     const previous = currentRef.current?.snapshot
     let next: ReceivedSnapshot | null = currentRef.current
     if (previous?.id === snapshot.id && previous.generatedAt > snapshot.generatedAt) return
-    if (isParticipant(snapshot)) {
+    if (isParticipant(snapshot) && snapshot.me?.steppedAway) {
+      // A challenge you finished and left is never your current one again;
+      // its results come as a notice.
+      if (previous?.id === snapshot.id) next = null
+    } else if (isParticipant(snapshot)) {
       const replacesOtherActive = previous && previous.id !== snapshot.id && activeStatuses.includes(previous.status)
       if (snapshot.status === 'cancelled') {
         if (previous?.id === snapshot.id) next = null
@@ -81,8 +89,9 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
 
   const refresh = useCallback(async () => {
     try {
-      const { current: snapshot, invitations: pending } = await request<{ current: ChallengeSnapshot | null; invitations: ChallengeSnapshot[] }>('/api/challenges/current')
+      const { current: snapshot, invitations: pending, results: ready } = await request<{ current: ChallengeSnapshot | null; invitations: ChallengeSnapshot[]; results?: ChallengeResultNotice[] }>('/api/challenges/current')
       setInvitations(pending)
+      setResults((ready ?? []).filter((result) => !seenResults.current.has(result.challengeId)))
       if (snapshot) apply(snapshot)
       else if (currentRef.current && activeStatuses.includes(currentRef.current.snapshot.status)) {
         currentRef.current = null
@@ -111,6 +120,27 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
 
   useRealtimeEvent('challenge_update', (data) => apply(data as ChallengeSnapshot))
 
+  // A challenge's results are ready. Whoever left it before then hears the end
+  // fanfare here (those still on it heard it with the final snapshot), and
+  // ratings, XP and stats are reloaded either way.
+  useRealtimeEvent('challenge_results', (data) => {
+    const result = data as ChallengeResultNotice
+    if (seenResults.current.has(result.challengeId)) return
+    const watching = currentRef.current?.snapshot.id === result.challengeId
+    if (!watching) {
+      play('challengeEnd')
+      callbacks.current.onChallengeCompleted()
+    }
+    setResults((previous) => [result, ...previous.filter((other) => other.challengeId !== result.challengeId)])
+  })
+
+  const markResultsSeen = useCallback((challengeId: string) => {
+    if (seenResults.current.has(challengeId)) return
+    seenResults.current.add(challengeId)
+    setResults((previous) => previous.filter((result) => result.challengeId !== challengeId))
+    void fetch(`/api/challenges/${challengeId}/seen`, { method: 'POST' }).catch(() => undefined)
+  }, [])
+
   const value = useMemo<ChallengeState>(() => {
     const challengeId = () => {
       const id = currentRef.current?.snapshot.id
@@ -120,6 +150,12 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
     return {
       current,
       invitations,
+      results,
+      requestedResults,
+      showResults: (id: string) => setRequestedResults(id),
+      clearRequestedResults: () => setRequestedResults(null),
+      markResultsSeen,
+      stepAway: async () => apply(await request<ChallengeSnapshot>(`/api/challenges/${challengeId()}/step-away`, {})),
       notice,
       chat: current ? chat.filter((message) => message.challengeId === current.snapshot.id) : [],
       chatMutedForMe: current ? mutedChats.includes(current.snapshot.id) : false,
@@ -153,7 +189,7 @@ export function ChallengeProvider({ userId, children, onChallengeStarted, onChal
         setCurrent(null)
       },
     }
-  }, [addChatMessage, apply, chat, current, invitations, mutedChats, notice])
+  }, [addChatMessage, apply, chat, current, invitations, markResultsSeen, mutedChats, notice, requestedResults, results])
 
   return <ChallengeContext.Provider value={value}>{children}</ChallengeContext.Provider>
 }
