@@ -16,6 +16,7 @@ import type { EngineScore } from './accuracy.ts'
 // - A search that fails is retried on a fresh engine before giving up.
 //
 // The engine itself is behind `StartEngine`: a Web Worker in the browser, a
+// native process or a worker thread on the server (server/analysis.ts), a
 // fake in the tests.
 
 // A running engine: UCI commands go in through `send`. Its output lines and a
@@ -50,9 +51,16 @@ export type EngineOptions = {
   startTimeoutMs: number
   // Tries per search, each on a fresh engine after a failure.
   attempts: number
+  // UCI commands (such as `setoption`) sent to every engine once it has
+  // loaded, before it is used.
+  setup: string[]
+  // Clears the engine's memory of earlier searches (`ucinewgame`) before each
+  // search, so a search's result depends only on what it was asked: the same
+  // request gives the same answer whatever was searched before it.
+  independentSearches: boolean
 }
 
-export const defaultEngineOptions: EngineOptions = { searchTimeoutMs: 125_000, stopGraceMs: 10_000, startTimeoutMs: 60_000, attempts: 2 }
+export const defaultEngineOptions: EngineOptions = { searchTimeoutMs: 125_000, stopGraceMs: 10_000, startTimeoutMs: 60_000, attempts: 2, setup: [], independentSearches: false }
 
 const uciMove = /^[a-h][1-8][a-h][1-8][qrbn]?$/
 
@@ -150,7 +158,10 @@ export class EngineChannel {
       process.engine = this.startEngine((line) => {
         if (process.dead) return
         if (loading) {
-          if (line === 'uciok') process.engine.send('isready')
+          if (line === 'uciok') {
+            for (const command of this.options.setup) process.engine.send(command)
+            process.engine.send('isready')
+          }
           else if (line === 'readyok') {
             loading = false
             clearTimeout(startTimer)
@@ -240,6 +251,7 @@ export class EngineChannel {
         }
       }
       if (control) control.stop = () => stop('cancelled')
+      if (this.options.independentSearches) process.engine.send('ucinewgame')
       process.engine.send(`setoption name MultiPV value ${request.multipv}`)
       process.engine.send(`position fen ${request.fen}`)
       process.engine.send(`go depth ${request.depth}${request.moveUci ? ` searchmoves ${request.moveUci}` : ''}`)

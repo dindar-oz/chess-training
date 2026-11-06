@@ -18,3 +18,18 @@ export function winningChances(centipawns: number) {
   const capped = Math.max(-1000, Math.min(1000, centipawns))
   return 2 / (1 + Math.exp(-0.00368208 * capped)) - 1
 }
+
+// How a position was judged: the score of its best line for the side to move,
+// the engine's best move (null with no legal moves), and the second-best line's
+// score (null with only one legal move). Scores are centipawns, as scoreValue().
+export type PositionVerdict = { best: number; bestUci: string | null; second: number | null }
+
+// A move's score and centipawn loss. The engine's best move is worth the best
+// line and loses nothing, by definition. Any other move is worth the score of a
+// search restricted to it, and loses what it falls short of the best line;
+// never less than 0, should that search rate it higher than the best line did.
+export function judgeMove(position: PositionVerdict, moveUci: string, searchedScore: number | null) {
+  if (moveUci === position.bestUci) return { score: position.best, cpl: 0 }
+  if (searchedScore === null) return null
+  return { score: searchedScore, cpl: Math.max(0, position.best - searchedScore) }
+}

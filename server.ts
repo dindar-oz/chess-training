@@ -4,19 +4,14 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from 
 import { extname, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Chess } from 'chess.js'
-import initStockfish from 'stockfish'
 import { initialRating } from './shared/elo.ts'
 import { isChessTitle, maxAdminElo, minAdminElo } from './shared/titles.ts'
+import { analysisStatus, analyzeNow, initAnalysis } from './server/analysis.ts'
 import { awardBadge, handleBadgeRequest, initBadges } from './server/badges.ts'
 import { broadcast, disconnectSession, disconnectUser, openEventStream, sendToUser, setAppBuild, startHeartbeat, updateOnlineUser } from './server/realtime.ts'
 import { RequestError, allowRequest, readJson, sendJson } from './server/http.ts'
 import { handleChallengeRequest, handleUserRemoved, initChallenges } from './server/challenges.ts'
 import { importJob, pgnElo, startImport } from './server/pgnImport.ts'
-
-type Engine = {
-  listener?: (line: string) => void
-  sendCommand: (command: string) => void
-}
 
 type AnalyzeRequest = {
   fen?: string
@@ -24,14 +19,8 @@ type AnalyzeRequest = {
   depth?: number
 }
 
-type EngineScore = {
-  cp: number | null
-  mate: number | null
-}
-
 const port = Number(process.env.PORT ?? 8787)
 const maxDepth = 30
-const maxPendingAnalyses = 4
 const completionXp = 10
 const matchedMoveXp = 1
 const perfectSessionXp = 5
@@ -195,9 +184,6 @@ for (const username of adminUsernames) {
   const promoted = database.prepare("UPDATE users SET role = 'admin' WHERE username = ?").run(username)
   if (promoted.changes === 0) console.error(`ADMIN_USERNAMES: no registered user named "${username}".`)
 }
-const enginePromise = initStockfish('lite-single') as Promise<Engine>
-let requestQueue: Promise<unknown> = Promise.resolve()
-let pendingAnalyses = 0
 
 type Role = 'user' | 'admin'
 type User = { id: string; username: string; xp: number; elo: number; role: Role }
@@ -323,47 +309,6 @@ function clientAddress(request: import('node:http').IncomingMessage) {
 
 function gameMetadata(row: Record<string, unknown>) {
   return { id: row.id, title: row.title, white: row.white, black: row.black, event: row.event, date: row.date, result: row.result, plyCount: row.ply_count }
-}
-
-function parseScore(line: string): EngineScore | null {
-  const score = line.match(/score (cp|mate) (-?\d+)/)
-  if (!score) return null
-  return score[1] === 'cp'
-    ? { cp: Number(score[2]), mate: null }
-    : { cp: null, mate: Number(score[2]) }
-}
-
-async function analyze(fen: string, depth: number, moveUci?: string) {
-  const engine = await enginePromise
-  return new Promise<EngineScore>((resolve, reject) => {
-    let latestScore: EngineScore | null = null
-    const timeout = setTimeout(() => {
-      engine.listener = undefined
-      reject(new Error('Stockfish backend analysis timed out.'))
-    }, 120_000)
-
-    engine.listener = (line) => {
-      const score = parseScore(line)
-      if (score) latestScore = score
-      if (line.startsWith('bestmove')) {
-        clearTimeout(timeout)
-        engine.listener = undefined
-        if (latestScore) resolve(latestScore)
-        else reject(new Error('Stockfish returned no score.'))
-      }
-    }
-
-    engine.sendCommand(`position fen ${fen}`)
-    engine.sendCommand(`go depth ${depth}${moveUci ? ` searchmoves ${moveUci}` : ''}`)
-  })
-}
-
-function queuedAnalyze(fen: string, depth: number, moveUci?: string) {
-  if (pendingAnalyses >= maxPendingAnalyses) throw new RequestError(429, 'The analysis queue is full. Please try again shortly.')
-  pendingAnalyses += 1
-  const task = requestQueue.then(() => analyze(fen, depth, moveUci))
-  requestQueue = task.catch(() => undefined)
-  return task.finally(() => { pendingAnalyses -= 1 })
 }
 
 function validAnalysisRequest(body: AnalyzeRequest): body is AnalyzeRequest & { fen: string; depth: number } {
@@ -671,6 +616,13 @@ const server = createServer(async (request, response) => {
     return
   }
 
+  // What runs the server-side analysis and how it is keeping up.
+  if (request.method === 'GET' && request.url === '/api/admin/analysis') {
+    if (!requireAdmin(request, response)) return
+    sendJson(response, 200, analysisStatus())
+    return
+  }
+
   if (request.method === 'GET' && request.url === '/api/admin/password-resets') {
     if (!requireAdmin(request, response)) return
     const rows = database.prepare(`
@@ -810,8 +762,9 @@ const server = createServer(async (request, response) => {
         return
       }
 
-      const score = await queuedAnalyze(body.fen, body.depth, body.moveUci)
-      sendJson(response, 200, score)
+      const analysis = analyzeNow(body.fen, body.depth, body.moveUci)
+      if (!analysis) throw new RequestError(429, 'The analysis queue is full. Please try again shortly.')
+      sendJson(response, 200, await analysis)
     } catch (error) {
       sendJson(response, error instanceof RequestError ? error.status : 500, { error: error instanceof Error ? error.message : 'Engine analysis failed.' })
     }
@@ -838,6 +791,7 @@ const server = createServer(async (request, response) => {
   }
 })
 
+initAnalysis({ database })
 initChallenges({ database, awardXp })
 initBadges({ database })
 startHeartbeat((tokenHash) => userForTokenHash(tokenHash) !== null)
