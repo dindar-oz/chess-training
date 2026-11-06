@@ -559,6 +559,12 @@ function scoreMoves(challenge: ChallengeRow) {
       update.run(attempted.cpl, original.cpl, verdict.best, attempted.score, original.score, verdict.second, verdict.bestUci, row.player_id, row.ply)
       scored += 1
     }
+    // Challenges that were already running when scoring moved to the server
+    // started without an engine; they are scored by this one.
+    const { engine } = analysisSettings()
+    if (scored > 0 && challenge.analysis_engine === null && engine) {
+      database.prepare('UPDATE challenges SET analysis_engine = ? WHERE id = ? AND analysis_engine IS NULL').run(engine, challenge.id)
+    }
   })
   return scored
 }
